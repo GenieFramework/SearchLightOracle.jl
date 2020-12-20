@@ -1,0 +1,13 @@
+env: dev
+
+dev:
+  adapter:  Oracle
+  host:     127.0.0.1
+  port:     551532
+  database: XEPDB1
+  username: searchlight_test
+  password: seachlight
+
+  config:
+    log_queries: true
+    log_level: :debug
