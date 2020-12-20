@@ -1,6 +1,6 @@
 module SearchLightOracle
 
-import DataFrames, Logging
+import DataFrames.DataFrame, Logging
 import Oracle
 
 import SearchLight
@@ -16,7 +16,6 @@ function SearchLight.column_field_name()
 end
 
 const DatabaseHandle = Oracle.Connection
-const ResultHandle   = Oracle.Result
 
 #
 # Connection
@@ -41,7 +40,60 @@ function SearchLight.connect(conn_data::Dict = SearchLight.config.db_config_sett
   haskey(conn_data, "connect_timeout") && push!(dns, string("connect_timeout=", conn_data["connect_timeout"]))
   haskey(conn_data, "client_encoding") && push!(dns, string("client_encoding=", conn_data["client_encoding"]))
 
-  push!(CONNECTIONS, LibPQ.Connection(join(dns, " ")))[end]
+  #push!(CONNECTIONS, LibPQ.Connection(join(dns, " ")))[end]
 end
 
+function DataFrames.DataFrame(resultSet::Oracle.ResultSet)
+
+    ## column names
+    dictColumns = resultSet.schema.column_names_index
+    key_value_pairs = [(key ,value) for (key,value) in dictColumns]
+    sort!(key_value_pairs, by = x->x[2])
+    colNames = map(x->x[1],key_value_pairs)
+
+    ## data 
+    rowSize, colSize = size(resultSet)
+    matRes = Matrix{Any}(missing,rowSize,colSize)
+    rowcount = 1
+    for row in resultSet.rows
+        for (key,value) in dictColumns
+            matRes[rowcount,value] = row.data[value]
+        end
+        rowcount += 1
+    end
+
+    resType = create_types_for_matrix(matRes)
+    df = DataFrames.DataFrame(resType,colNames,0)
+
+    for i in 1:rowSize
+        push!(df,matRes[i,:])
+    end
+
+    result = DataFrames.DataFrame(matRes,colNames)
+
+    return df
 end
+
+
+function create_types_for_matrix(matrix::Array{Any,2})::Array{Type}
+    df = DataFrames.DataFrame()
+    resMatrix = []
+    rowsize, colsize = size(matrix)
+    typeArray = Type[]
+
+    for colNum in 1:colsize
+
+        typeCol = unique(map(x->typeof(x),matrix[:,colNum]))
+
+        typeDef =   if length(typeCol) == 1 && length(findall(x -> x==Missing, typeCol)) > 0
+                        Union{Any,Missing}
+                    else
+                        filter!(x -> x != Missing ,typeCol)
+                        Union{typeCol[1],Missing}
+                    end
+        push!(typeArray,typeDef)
+    end
+    return typeArray
+end
+
+end # End of Modul
