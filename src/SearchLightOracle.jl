@@ -67,6 +67,23 @@ function SearchLight.Migration.drop_migrations_table(table_name::String = Search
     nothing
   end
 
+  function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.connection(); internal = false) :: DataFrames.DataFrame
+    result = if SearchLight.config.log_queries && ! internal
+      @info sql
+      stmt = Oracle.Stmt(sql)
+      @time Oracle.execute(conn, stmt)
+    else
+        stmt = Oracle.Stmt(sql)
+        Oracle.execute(conn, stmt)
+    end
+  
+    if LibPQ.error_message(result) != ""
+      throw(SearchLight.Exceptions.DatabaseAdapterException("$(string(LibPQ)) error: $(LibPQ.errstring(result)) [$(LibPQ.errcode(result))]"))
+    end
+  
+    result |> DataFrames.DataFrame
+  end
+
 ### not defined yet in Oracle.jl
 
 function DataFrames.DataFrame(resultSet::Oracle.ResultSet)
