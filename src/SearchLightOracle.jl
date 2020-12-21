@@ -1,10 +1,10 @@
 module SearchLightOracle
 
-import Oracle, DataFrames, Logging
-
+import DataFrames, Logging
 import SearchLight
-
 import SearchLight: storableFields, fields_to_store_directly, connect
+
+using Oracle
 
 const DEFAULT_PORT = 1521
 
