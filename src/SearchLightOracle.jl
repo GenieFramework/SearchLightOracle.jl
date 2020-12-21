@@ -54,38 +54,44 @@ end
 
 function SearchLight.Migration.drop_migrations_table(table_name::String = SearchLight.config.db_migrations_table_name) :: Nothing
   
-  
-    queryString = string("select table_name from information_schema.tables where table_name = '$table_name'")
+    queryString = string("""SELECT 
+                                table_name 
+                            FROM 
+                                ALL_TABLES t 
+                            WHERE 
+                                t.Tablespace_name in (select user from dual) 
+                                and table_name = '$table_name'""")
+
     if !isempty(SearchLight.query(queryString)) 
-  
+
         SearchLight.query("DROP TABLE $table_name")
         @info "Droped table $table_name"
     else
         @info "Nothing to drop"
     end
-  
-    nothing
-  end
 
-  function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.connection(); internal = false) :: DataFrames.DataFrame
+    nothing
+end
+
+function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.connection(); internal = false) :: DataFrames.DataFrame
     result = if SearchLight.config.log_queries && ! internal
-      @info sql
-      stmt = Oracle.Stmt(conn, sql)
-      @time Oracle.execute(stmt)
-    else
+        @info sql
         stmt = Oracle.Stmt(conn, sql)
+        @time Oracle.execute(stmt)
+        Oracle.query(stmt)
+    else
+        stmt = Oracle.Stmt(conn, ‚sql)
         Oracle.execute(stmt)
+        Oracle.quer(stmt)
     end
-  
-    if LibPQ.error_message(result) != ""
-      throw(SearchLight.Exceptions.DatabaseAdapterException("$(string(LibPQ)) error: $(LibPQ.errstring(result)) [$(LibPQ.errcode(result))]"))
-    end
-  
+
+    # if LibPQ.error_message(result) != ""
+    #   throw(SearchLight.Exceptions.DatabaseAdapterException("$(string(LibPQ)) error: $(LibPQ.errstring(result)) [$(LibPQ.errcode(result))]"))
+    # end 
     result |> DataFrames.DataFrame
-  end
+end
 
 ### not defined yet in Oracle.jl
-
 function DataFrames.DataFrame(resultSet::Oracle.ResultSet)
 
     ## column names
