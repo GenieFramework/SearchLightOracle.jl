@@ -43,3 +43,18 @@ module TestSetupTeardown
   end
 
 end
+
+@safetestset "Connection test" begin
+  using SearchLight
+  using SearchLightOracle
+  using Main.TestSetupTeardown
+
+  connection_file = "oracle_connection.yml"
+      
+  conn_info_oracle = SearchLight.Configuration.load(connection_file)
+  conn = SearchLight.connect(conn_info_oracle)
+
+  conn = prepareDbConnection()  
+  @test conn !== nothing
+
+end

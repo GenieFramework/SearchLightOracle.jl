@@ -1,11 +1,10 @@
 module SearchLightOracle
 
-import DataFrames.DataFrame, Logging
-import Oracle
+import Oracle, DataFrames, Logging
 
 import SearchLight
 
-import SearchLight: storableFields, fields_to_store_directly
+import SearchLight: storableFields, fields_to_store_directly, connect
 
 const DEFAULT_PORT = 1521
 
@@ -17,30 +16,40 @@ end
 
 const DatabaseHandle = Oracle.Connection
 
+const CONNECTIONS = DatabaseHandle[]
+
 #
 # Connection
 #
-
 
 """
     connect(conn_data::Dict)::DatabaseHandle
 
 Connects to the database and returns a handle.
 """
-function SearchLight.connect(conn_data::Dict = SearchLight.config.db_config_settings) :: DatabaseHandle
-  dns = String[]
+function SearchLight.connect(conn_data::Dict = SearchLight.config.db_config_settings)::DatabaseHandle
+  
+  host = ""
+  port = ""
+  database = ""
+  username = ""
+  password = ""
+  connectionString = ""
+  
+  haskey(conn_data, "host")     ? host = conn_data["host"] : throw(SearchLight.Exceptions.InvalidConnectionItem("host is not there or empty"))
+  haskey(conn_data, "port")     ? port = conn_data["port"] : throw(SearchLight.Exceptions.InvalidConnectionItem("port is not there or empty"))
+  haskey(conn_data, "database") ? database = conn_data["database"] : throw(SearchLight.Exceptions.InvalidConnectionItem("database is not there or empty"))
+  haskey(conn_data, "username") ? username = conn_data["username"] : throw(SearchLight.Exceptions.InvalidConnectionItem("username is not there or empty"))
+  haskey(conn_data, "password") ? password = conn_data["password"] : throw(SearchLight.Exceptions.InvalidConnectionItem("password is not there or empty"))
 
-  haskey(conn_data, "host")     && push!(dns, string("host=", conn_data["host"]))
-  haskey(conn_data, "hostaddr") && push!(dns, string("hostaddr=", conn_data["hostaddr"]))
-  haskey(conn_data, "port")     && push!(dns, string("port=", conn_data["port"]))
-  haskey(conn_data, "database") && push!(dns, string("dbname=", conn_data["database"]))
-  haskey(conn_data, "username") && push!(dns, string("user=", conn_data["username"]))
-  haskey(conn_data, "password") && push!(dns, string("password=", conn_data["password"]))
-  haskey(conn_data, "passfile") && push!(dns, string("passfile=", conn_data["passfile"]))
-  haskey(conn_data, "connect_timeout") && push!(dns, string("connect_timeout=", conn_data["connect_timeout"]))
-  haskey(conn_data, "client_encoding") && push!(dns, string("client_encoding=", conn_data["client_encoding"]))
+  connectionString = "//$host:$port/$database"
 
-  #push!(CONNECTIONS, LibPQ.Connection(join(dns, " ")))[end]
+  push!(CONNECTIONS, Oracle.Connection(username, password, connectionString))[end]
+end
+
+function SearchLight.connection()
+  isempty(CONNECTIONS) && throw(SearchLight.Exceptions.NotConnectedException())
+  CONNECTIONS[end]
 end
 
 function DataFrames.DataFrame(resultSet::Oracle.ResultSet)
