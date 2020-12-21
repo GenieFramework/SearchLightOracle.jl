@@ -70,11 +70,11 @@ function SearchLight.Migration.drop_migrations_table(table_name::String = Search
   function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.connection(); internal = false) :: DataFrames.DataFrame
     result = if SearchLight.config.log_queries && ! internal
       @info sql
-      stmt = Oracle.Stmt(sql)
-      @time Oracle.execute(conn, stmt)
+      stmt = Oracle.Stmt(conn, sql)
+      @time Oracle.execute(stmt)
     else
-        stmt = Oracle.Stmt(sql)
-        Oracle.execute(conn, stmt)
+        stmt = Oracle.Stmt(conn, sql)
+        Oracle.execute(stmt)
     end
   
     if LibPQ.error_message(result) != ""
