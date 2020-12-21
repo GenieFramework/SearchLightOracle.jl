@@ -80,7 +80,7 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
         @time Oracle.execute(stmt)
         Oracle.query(stmt)
     else
-        stmt = Oracle.Stmt(conn‚sql)
+        stmt = Oracle.Stmt(conn, sql)
         Oracle.execute(stmt)
         Oracle.quer(stmt)
     end
