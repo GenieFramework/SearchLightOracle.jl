@@ -52,6 +52,23 @@ function SearchLight.connection()
   CONNECTIONS[end]
 end
 
+function SearchLight.Migration.drop_migrations_table(table_name::String = SearchLight.config.db_migrations_table_name) :: Nothing
+  
+  
+    queryString = string("select table_name from information_schema.tables where table_name = '$table_name'")
+    if !isempty(SearchLight.query(queryString)) 
+  
+        SearchLight.query("DROP TABLE $table_name")
+        @info "Droped table $table_name"
+    else
+        @info "Nothing to drop"
+    end
+  
+    nothing
+  end
+
+### not defined yet in Oracle.jl
+
 function DataFrames.DataFrame(resultSet::Oracle.ResultSet)
 
     ## column names

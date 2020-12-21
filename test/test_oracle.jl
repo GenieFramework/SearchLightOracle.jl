@@ -58,4 +58,8 @@ end
   conn = prepareDbConnection()  
   @test conn !== nothing
 
+  tearDown(conn)
+  using Oracle
+  Oracle.close(conn)
+
 end
