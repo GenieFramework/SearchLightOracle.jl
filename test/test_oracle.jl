@@ -50,10 +50,6 @@ end
   using Main.TestSetupTeardown
 
   connection_file = "oracle_connection.yml"
-      
-  conn_info_oracle = SearchLight.Configuration.load(connection_file)
-  conn = SearchLight.connect(conn_info_oracle)
-  SearchLight.connection()
 
   conn = prepareDbConnection()  
   @test conn !== nothing
