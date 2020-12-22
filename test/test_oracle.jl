@@ -27,7 +27,7 @@ module TestSetupTeardown
 
         # obtain tables exists or not, if they does drop it
         wheres = join(map(x -> string("'", lowercase(SearchLight.Inflector.to_plural(x)), "'"), tables), " , ", " , ")
-        queryString = string("select table_name from information_schema.tables where table_name in ($wheres)")
+        queryString = string("SELECT table_name FROM user_tables where table_name in ($wheres)")
         result = SearchLight.query(queryString)
         for item in eachrow(result)
             try

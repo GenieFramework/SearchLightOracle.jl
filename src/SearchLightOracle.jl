@@ -57,10 +57,9 @@ function SearchLight.Migration.drop_migrations_table(table_name::String = Search
     queryString = string("""SELECT 
                                 table_name 
                             FROM 
-                                ALL_TABLES t 
+                                USER_TABLES t 
                             WHERE 
-                                t.Tablespace_name in (select user from dual) 
-                                and table_name = '$table_name'""")
+                                table_name = '$table_name'""")
 
     if !isempty(SearchLight.query(queryString)) 
 
