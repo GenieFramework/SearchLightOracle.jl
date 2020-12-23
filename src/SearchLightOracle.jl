@@ -2,7 +2,7 @@ module SearchLightOracle
 
 import DataFrames, Logging
 import SearchLight
-import SearchLight: storableFields, fields_to_store_directly, connect
+import SearchLight: storableFields, fields_to_store_directly
 
 using Oracle, Dates
 
@@ -19,6 +19,23 @@ end
 const DatabaseHandle = Oracle.Connection
 
 const CONNECTIONS = DatabaseHandle[]
+
+const TYPE_MAPPINGS = Dict{Symbol,Symbol}( # Julia / Postgres
+  :char       => :CHAR                  ,
+  :string     => Symbol("VARCHAR(255)") ,
+  :text       => Symbol("VARCHAR(2000)"),
+  :integer    => :Number                ,
+  :int        => :Number                ,
+  :float      => :Number                ,
+  :decimal    => :Number                ,
+  :datetime   => :DATE                  ,
+  :timestamp  => :TIMESTAMP             ,
+  :time       => :TIMESTAMP             ,
+  :date       => :DATE                  ,
+  :binary     => :BLOB                  ,
+  :boolean    => :SMALLINT              ,
+  :bool       => :SMALLINT              ,
+  :dbid       => Symbol("NUMBER(10)"))
 
 #
 # Connection
@@ -106,17 +123,93 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
     #execute the query statement
     result = if SearchLight.config.log_queries && ! internal
         @info sql
-        @time Oracle.execute(stmt)
-        Oracle.query(stmt)
+        @time Oracle.execute(stmt)       
+        stmt.info.is_query == true ? Oracle.query(stmt) : nothing
     else
         Oracle.execute(stmt)
-        Oracle.query(stmt)
+        stmt.info.is_query == true ? Oracle.query(stmt) : nothing
     end
     ## each statment should be closed 
     Oracle.close(stmt)
-
-    return result |> DataFrames.DataFrame
+    
+    result === nothing ? DataFrames.DataFrame() : result |> DataFrames.DataFrame
 end
+
+### fallback function if storableFields not defined in the module
+function storableFields(m::Type{T})::Dict{String,String} where {T<:SearchLight.AbstractModel}
+    tmpStorage = Dict{String,String}()
+    for field in SearchLight.persistable_fields(m)
+      push!(tmpStorage, field => field)
+    end
+    return tmpStorage
+end
+  
+  """
+    Only direct storable fields will be returnd by this function.
+    The fields with an AbstractModel-field or array will be stored temporarly 
+    in the saving method and saved after returning the parent struct.
+  """
+  function fields_to_store_directly(m::Type{T}) where {T<:SearchLight.AbstractModel}
+  
+    storage_fields = storableFields(m)
+    fields_and_types = SearchLight.to_string_dict(m)
+    uf=Dict{String,String}()
+  
+    for (key,value) in storage_fields
+      if !(fields_and_types[key]<:SearchLight.AbstractModel || fields_and_types[key]<:Array{<:SearchLight.AbstractModel,1})
+        push!(uf,key => value)
+      end
+    end
+  
+    return uf
+  end
+
+  function SearchLight.Migration.create_table(f::Function, name::Union{String,Symbol}, options::Union{String,Symbol} = "") :: Nothing
+    SearchLight.query(create_table_sql(f, string(name), options), internal = true)
+  
+    nothing
+  end
+
+  function create_table_sql(f::Function, name::String, options::String = "") :: String
+    "CREATE TABLE $name (" * join(f()::Vector{String}, ", ") * ") $options" |> strip
+  end
+
+  function SearchLight.Migration.column(name::Union{String,Symbol}, column_type::Union{String,Symbol}, options::Any = ""; default::Any = nothing, limit::Union{Int,Nothing,String} = nothing, not_null::Bool = false) :: String
+    "$name $(TYPE_MAPPINGS[column_type] |> string) " *
+      (default === nothing ? "" : " DEFAULT $default ") *
+      (not_null ? " NOT NULL " : "") *
+      string(options)
+  end
+
+  function sequence_name(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: String
+    string(table_name) * "__" * "seq_" * string(column_name)
+  end
+
+  function SearchLight.Migration.create_sequence(name::Union{String,Symbol}) :: Nothing
+    SearchLight.query("CREATE SEQUENCE $name")
+  
+    nothing
+  end
+
+  function SearchLight.Migration.create_id_nextval_trigger(table::Union{String,Symbol}, sequence_name::String="",triggername::String = SearchLight.primary_key_name)
+    sequ_name = sequence_name == "" ? sequence_name(table,SearchLight.primary_key_name) : sequence_name
+    sqlString = """CREATE OR REPLACE TRIGGER $triggername 
+                    BEFORE INSERT ON $(string(table)) 
+                    FOR EACH ROW
+                    WHEN (new.$(SearchLight.primary_key_name) IS NULL)
+                    BEGIN
+                        SELECT $sequence_name.NEXTVAL
+                        INTO   :new.$(SearchLight.primary_key_name)
+                        FROM   dual;
+                    END """
+
+    SearchLight.query(sqlStrinng)
+    nothing
+  end
+  
+  function SearchLight.Migration.create_sequence(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: Nothing
+    SearchLight.Migration.create_sequence(sequence_name(table_name, column_name))
+  end
 
 ########################################################################
 #                                                                      #

@@ -104,7 +104,6 @@ end;
 @safetestset "Models and tableMigration" begin
     using SearchLight
     using SearchLightOracle
-    using SearchLight.Migration
     using Main.TestSetupTeardown
     using Main.TestModels
 
