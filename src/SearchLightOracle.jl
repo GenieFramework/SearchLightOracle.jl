@@ -66,17 +66,37 @@ function SearchLight.Migration.drop_migrations_table(table_name::String = Search
                             FROM 
                                 USER_TABLES t 
                             WHERE 
-                                table_name = '$table_name'""")
+                                table_name = '$(uppercase(table_name))'""")
 
     if !isempty(SearchLight.query(queryString)) 
 
-        SearchLight.query("DROP TABLE $table_name")
+        Oracle.execute(SearchLight.connection(),"DROP TABLE $(uppercase(table_name))")
         @info "Droped table $table_name"
     else
         @info "Nothing to drop"
     end
 
     nothing
+end
+
+"""
+    create_migrations_table(table_name::String)::Nothing
+
+Runs a SQL DB query that creates the table `table_name` with the structure needed to be used as the DB migrations table.
+The table should contain one column, `version`, unique, as a string of maximum 30 chars long.
+"""
+function SearchLight.Migration.create_migrations_table(table_name::String = SearchLight.config.db_migrations_table_name) :: Nothing
+  
+  queryString = string("select table_name from user_tables where table_name = upper('$table_name')")
+  if isempty(SearchLight.query(queryString))
+    stmt = Oracle.Stmt(SearchLight.connection(),"CREATE TABLE $table_name (version varchar2(30))")
+    Oracle.execute(stmt)
+    @info "Created table $table_name"
+  else
+    @info "Migration table exists."
+  end
+
+  nothing
 end
 
 function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.connection(); internal = false) :: DataFrames.DataFrame
