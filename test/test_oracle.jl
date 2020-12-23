@@ -57,3 +57,26 @@ end
   tearDown(conn)
 
 end
+
+@safetestset "Orcalce connection and infos" begin
+    using SearchLight
+    using SearchLightOracle
+    using Main.TestSetupTeardown
+
+  
+    conn = prepareDbConnection()
+  
+    infoDB = SearchLightOracle.connectionInfo()
+
+    keysInfo = Dict{String,String}()
+
+    conn_info_oracle = SearchLight.Configuration.load(connection_file)
+
+    for info in conn_info_oracle
+        
+        @test infoVal == valInfo
+    end
+
+    tearDown(conn)
+
+end
