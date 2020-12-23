@@ -6,6 +6,8 @@ import SearchLight: storableFields, fields_to_store_directly, connect
 
 using Oracle, Dates
 
+export getDbUsername
+
 const DEFAULT_PORT = 1521
 
 const COLUMN_NAME_FIELD_NAME = :column_name
