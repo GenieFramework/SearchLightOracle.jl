@@ -146,25 +146,6 @@ function DataFrames.DataFrame(resultSet::Oracle.ResultSet)
     return df
 end
 
-
-function getDbUsername(conn::Oracle.Connection) :: Union{Missing, String}
-    value_char_array_ref = Ref{Ptr{UInt8}}()
-    value_length_ref = Ref{UInt32}()
-    handleTyp::UInt32 = 8   ### Serverhandle
-    attributNum::UInt32 = 22 ## OCI_ATTR_USERNAME == 22
-    result = dpiConn_getOciAttr(conn.handle, handleTyp, attributNum, value_char_array_ref, value_length_ref)
-    Oracle.error_check(Oracle.context(conn), result)
-    if value_char_array_ref[] == C_NULL
-        return missing
-    else
-        return unsafe_string(value_char_array_ref[], value_length_ref[])
-    end
-end
-
-function dpiConn_getOciAttr(connection_handle::Ptr{Cvoid}, handleTyp::UInt32 , attributNum::UInt32 ,value_char_array_ref::Ref{Ptr{UInt8}}, value_length_ref::Ref{UInt32})
-    ccall((:dpiConn_getOciAttr, Oracle.libdpi), Oracle.OraResult, (Ptr{Cvoid}, UInt32, UInt32 , Ref{Ptr{UInt8}}, Ref{UInt32}), connection_handle, handleTyp, attributNum ,value_char_array_ref, value_length_ref)
-end
-
 ########################################################################
 #                                                                      #
 #           Utility funcitions                                         # 
@@ -241,5 +222,23 @@ function juliaType_fromOracleType(columnInfo::Oracle.OraQueryInfo)::Type
     end
     return typeArray
 end
+
+function connectionInfo()::Dict{String,Any}
+
+    infoStringDict = Dict(
+        ["host"     => "select sys_context('USERENV', 'IP_ADDRESS') ip_adress from dual",
+        "username" => "select user from dual",
+        "database" => "select ora_database_name from dual"])
+
+    result = Dict([info => getEnvironmentInfo(sql) for (info,sql) in infoStringDict])
+   
+end
+
+function getEnvironmentInfo(sql::String)
+    df = SearchLight.query(sql) |> DataFrames.DataFrame
+    return df[1,1]
+end
+
+
 
 end # End of Modul
