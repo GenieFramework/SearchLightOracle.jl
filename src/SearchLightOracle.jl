@@ -152,7 +152,7 @@ function getDbUsername(conn::Oracle.Connection) :: Union{Missing, String}
     value_length_ref = Ref{UInt32}()
     handleTyp::UInt32 = 8   ### Serverhandle
     attributNum::UInt32 = 22 ## OCI_ATTR_USERNAME == 22
-    result = Oracle.dpiConn_getOciAttr(conn.handle, handleTyp, attributNum, value_char_array_ref, value_length_ref)
+    result = dpiConn_getOciAttr(conn.handle, handleTyp, attributNum, value_char_array_ref, value_length_ref)
     Oracle.error_check(Oracle.context(conn), result)
     if value_char_array_ref[] == C_NULL
         return missing
