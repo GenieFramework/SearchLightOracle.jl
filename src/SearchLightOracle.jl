@@ -47,6 +47,11 @@ function SearchLight.connect(conn_data::Dict = SearchLight.config.db_config_sett
   push!(CONNECTIONS, Oracle.Connection(username, password, connectionString))[end]
 end
 
+function SearchLight.disconnect(connection::Oracle.Connection)
+    Oracle.close(connection)
+    nothing
+end
+
 function SearchLight.connection()
   isempty(CONNECTIONS) && throw(SearchLight.Exceptions.NotConnectedException())
   CONNECTIONS[end]
@@ -73,24 +78,34 @@ function SearchLight.Migration.drop_migrations_table(table_name::String = Search
 end
 
 function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.connection(); internal = false) :: DataFrames.DataFrame
+    
+    #preparing the statement
+    stmt = stmt = Oracle.Stmt(conn, sql)
+    #execute the query statement
     result = if SearchLight.config.log_queries && ! internal
         @info sql
-        stmt = Oracle.Stmt(conn, sql)
         @time Oracle.execute(stmt)
         Oracle.query(stmt)
     else
-        stmt = Oracle.Stmt(conn, sql)
         Oracle.execute(stmt)
-        Oracle.quer(stmt)
+        Oracle.query(stmt)
     end
+    ## each statment should be closed 
+    Oracle.close(stmt)
 
-    # if LibPQ.error_message(result) != ""
-    #   throw(SearchLight.Exceptions.DatabaseAdapterException("$(string(LibPQ)) error: $(LibPQ.errstring(result)) [$(LibPQ.errcode(result))]"))
-    # end 
     return result |> DataFrames.DataFrame
 end
 
-### not defined yet in Oracle.jl
+########################################################################
+#                                                                      #
+#           Not defined yet in Oracle.jl                               # 
+#                                                                      # 
+########################################################################
+
+## DataFrames.DataFrame
+""" 
+    Implementation of DataFrame for Oracle Resultsets
+"""
 function DataFrames.DataFrame(resultSet::Oracle.ResultSet)
     rowSize, colSize = size(resultSet)
     queryInfos = resultSet.schema.column_query_info
@@ -130,26 +145,22 @@ function DataFrames.DataFrame(resultSet::Oracle.ResultSet)
 end
 
 
-function create_types_for_matrix(matrix::Array{Any,2}, columnInfos::Vector{Oracle.OraQueryInfo})::Array{Type}
-    df = DataFrames.DataFrame()
-    resMatrix = []
-    rowsize, colsize = size(matrix)
-    typeArray = Type[]
-
-    for colNum in 1:colsize
-
-        typeCol = unique(map(x->typeof(x),matrix[:,colNum]))
-
-        typeDef =   if length(typeCol) == 1 && length(findall(x -> x==Missing, typeCol)) > 0
-                        ora_type = juliaType_fromOracleType(columnInfos[colNum])
-                        Union{ora_type,Missing}
-                    else
-                        filter!(x -> x != Missing ,typeCol)
-                        Union{typeCol[1],Missing}
-                    end
-        push!(typeArray,typeDef)
+function getDbUsername(conn::Oracle.Connection) :: Union{Missing, String}
+    value_char_array_ref = Ref{Ptr{UInt8}}()
+    value_length_ref = Ref{UInt32}()
+    handleTyp::UInt32 = 8   ### Serverhandle
+    attributNum::UInt32 = 22 ## OCI_ATTR_USERNAME == 22
+    result = Oracle.dpiConn_getOciAttr(conn.handle, handleTyp, attributNum, value_char_array_ref, value_length_ref)
+    Oracle.error_check(Oracle.context(conn), result)
+    if value_char_array_ref[] == C_NULL
+        return missing
+    else
+        return unsafe_string(value_char_array_ref[], value_length_ref[])
     end
-    return typeArray
+end
+
+function dpiConn_getOciAttr(connection_handle::Ptr{Cvoid}, handleTyp::UInt32 , attributNum::UInt32 ,value_char_array_ref::Ref{Ptr{UInt8}}, value_length_ref::Ref{UInt32})
+    ccall((:dpiConn_getOciAttr, Oracle.libdpi), Oracle.OraResult, (Ptr{Cvoid}, UInt32, UInt32 , Ref{Ptr{UInt8}}, Ref{UInt32}), connection_handle, handleTyp, attributNum ,value_char_array_ref, value_length_ref)
 end
 
 ########################################################################
@@ -206,5 +217,27 @@ function juliaType_fromOracleType(columnInfo::Oracle.OraQueryInfo)::Type
  function juliaType_fromOracleType(columnInfos::Vector{T})::Array{Type,1} where {T<:Oracle.OraQueryInfo}
      juliaType_fromOracleType.(columnInfos)
  end
+
+ function create_types_for_matrix(matrix::Array{Any,2}, columnInfos::Vector{Oracle.OraQueryInfo})::Array{Type}
+    df = DataFrames.DataFrame()
+    resMatrix = []
+    rowsize, colsize = size(matrix)
+    typeArray = Type[]
+
+    for colNum in 1:colsize
+
+        typeCol = unique(map(x->typeof(x),matrix[:,colNum]))
+
+        typeDef =   if length(typeCol) == 1 && length(findall(x -> x==Missing, typeCol)) > 0
+                        ora_type = juliaType_fromOracleType(columnInfos[colNum])
+                        Union{ora_type,Missing}
+                    else
+                        filter!(x -> x != Missing ,typeCol)
+                        Union{typeCol[1],Missing}
+                    end
+        push!(typeArray,typeDef)
+    end
+    return typeArray
+end
 
 end # End of Modul
