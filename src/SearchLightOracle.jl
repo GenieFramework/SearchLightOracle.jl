@@ -190,10 +190,19 @@ end
   
     nothing
   end
+  
+  function SearchLight.Migration.create_sequence(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: Nothing
+    SearchLight.Migration.create_sequence(sequence_name(table_name, column_name))
+  end
 
-  function SearchLight.Migration.create_id_nextval_trigger(table::Union{String,Symbol}, sequence_name::String="",triggername::String = SearchLight.primary_key_name)
+  function SearchLight.Migration.column_id(name::Union{String,Symbol} = "id", options::Union{String,Symbol} = ""; constraint::Union{String,Symbol} = "", nextval::Union{String,Symbol} = "") :: String
+    "$name NUMBER(10) NOT NULL $options"
+  end
+
+  function SearchLight.Migration.create_id_nextval_trigger(table::Union{String,Symbol}, sequence_name::String="",triggername::String = "")
     sequ_name = sequence_name == "" ? sequence_name(table,SearchLight.primary_key_name) : sequence_name
-    sqlString = """CREATE OR REPLACE TRIGGER $triggername 
+    trigger_name = triggername == "" ? string(table) * "_" * SearchLight.primary_key_name : triggername
+    sqlString = """CREATE OR REPLACE TRIGGER $trigger_name 
                     BEFORE INSERT ON $(string(table)) 
                     FOR EACH ROW
                     WHEN (new.$(SearchLight.primary_key_name) IS NULL)
@@ -205,10 +214,6 @@ end
 
     SearchLight.query(sqlStrinng)
     nothing
-  end
-  
-  function SearchLight.Migration.create_sequence(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: Nothing
-    SearchLight.Migration.create_sequence(sequence_name(table_name, column_name))
   end
 
 ########################################################################
