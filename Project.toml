@@ -11,4 +11,5 @@ Oracle = "7240a794-28ba-5199-b477-df5fe5cf6155"
 SearchLight = "340e8cb6-72eb-11e8-37ce-c97ebeb32050"
 
 [compat]
+DataFrames = "0.22"
 julia = "1.5"
