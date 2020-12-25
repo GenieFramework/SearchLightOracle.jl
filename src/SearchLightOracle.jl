@@ -6,8 +6,6 @@ import SearchLight: storableFields, fields_to_store_directly
 
 using Oracle, Dates
 
-export getDbUsername
-
 const DEFAULT_PORT = 1521
 
 const COLUMN_NAME_FIELD_NAME = :column_name
@@ -78,22 +76,28 @@ end
 
 function SearchLight.Migration.drop_migrations_table(table_name::String = SearchLight.config.db_migrations_table_name) :: Nothing
   
-    queryString = string("""SELECT 
-                                table_name 
-                            FROM 
-                                USER_TABLES t 
-                            WHERE 
-                                table_name = '$(uppercase(table_name))'""")
+  SearchLight.Migration.drop_table(table_name)
 
-    if !isempty(SearchLight.query(queryString)) 
+  nothing
+end
 
-        Oracle.execute(SearchLight.connection(),"DROP TABLE $(uppercase(table_name))")
-        @info "Droped table $table_name"
-    else
-        @info "Nothing to drop"
-    end
+function SearchLight.Migration.drop_table(table_name::Union{String,Symbol}) :: Nothing
+  queryString = string("""SELECT 
+                              table_name 
+                          FROM 
+                              USER_TABLES t 
+                          WHERE 
+                              table_name = '$(uppercase(string(table_name)))'""")
 
-    nothing
+  if !isempty(SearchLight.query(queryString)) 
+
+      Oracle.execute(SearchLight.connection(),"DROP TABLE $(uppercase(string(table_name)))")
+      @info "Droped table $table_name"
+  else
+      @info "Nothing to drop"
+  end
+
+  nothing
 end
 
 """
@@ -164,6 +168,44 @@ end
     return uf
   end
 
+  function SearchLight.to_store_sql(m::T; conflict_strategy = :error)::String where {T<:SearchLight.AbstractModel}
+  
+    uf = fields_to_store_directly(typeof(m))
+  
+    sql = if ! SearchLight.ispersisted(m) || (SearchLight.ispersisted(m) && conflict_strategy == :update)
+      key = getkey(uf, SearchLight.primary_key_name(m), nothing)
+      key !== nothing && pop!(uf, key)
+  
+      fields = SearchLight.SQLColumn(uf)
+      vals = join( map(x -> string(SearchLight.to_sqlinput(m, Symbol(x), getfield(m, Symbol(x)))), collect(keys(uf))), ", ")
+  
+      "INSERT INTO $(SearchLight.table(typeof(m))) ( $fields ) VALUES ( $vals )" *
+          if ( conflict_strategy == :error ) ""
+          elseif ( conflict_strategy == :ignore ) " ON CONFLICT DO NOTHING"
+          elseif ( conflict_strategy == :update &&
+            getfield(m, Symbol(SearchLight.primary_key_name(m))).value !== nothing )
+              " ON CONFLICT ($(SearchLight.primary_key_name(m))) DO UPDATE SET $(SearchLight.update_query_part(m))"
+          else ""
+          end
+    else
+      prepare_update_part(m)
+    end
+  
+    return string(sql, " RETURNING $(SearchLight.primary_key_name(m));")
+  end
+  
+  function prepare_update_part(m::T)::String where {T<:SearchLight.AbstractModel}
+  
+    result = ""
+    sub_abstracts = SearchLight.array_sub_abstract_models(m)
+  
+    if !isempty(sub_abstracts)
+      result = join(prepare_update_part.(sub_abstracts),";",";")
+      result *= ";"
+    end 
+    result *= "UPDATE $(SearchLight.table(typeof(m))) SET $(SearchLight.update_query_part(m))"
+  end
+
   function SearchLight.Migration.create_table(f::Function, name::Union{String,Symbol}, options::Union{String,Symbol} = "") :: Nothing
     SearchLight.query(create_table_sql(f, string(name), options), internal = true)
   
@@ -199,21 +241,25 @@ end
     "$name NUMBER(10) NOT NULL $options"
   end
 
-  function SearchLight.Migration.create_id_nextval_trigger(table::Union{String,Symbol}, sequence_name::String="",triggername::String = "")
-    sequ_name = sequence_name == "" ? sequence_name(table,SearchLight.primary_key_name) : sequence_name
+  function SearchLight.Migration.create_id_nextval_trigger(table::Union{String,Symbol}, sequenceName::String = "",triggername::String = "")
+     if sequenceName == ""
+      sequ_name = sequence_name(table,string(SearchLight.pk())) 
+     else
+      sequ_name = sequenceName
+     end 
     trigger_name = triggername == "" ? string(table) * "_" * SearchLight.primary_key_name : triggername
     sqlString = """CREATE OR REPLACE TRIGGER $trigger_name 
                     BEFORE INSERT ON $(string(table)) 
                     FOR EACH ROW
                     WHEN (new.$(SearchLight.primary_key_name) IS NULL)
                     BEGIN
-                        SELECT $sequence_name.NEXTVAL
+                        SELECT $(sequ_name).NEXTVAL
                         INTO   :new.$(SearchLight.primary_key_name)
                         FROM   dual;
                     END """
 
     SearchLight.query(sqlStrinng)
-    nothing
+    sqlString
   end
 
 ########################################################################
