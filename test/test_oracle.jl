@@ -115,7 +115,8 @@ end;
   
   ## make Table "Book" 
     SearchLight.Generator.new_table_migration(Book)
-    SearchLight.Migration.up()
+    SearchLight.Migration.all_up!!()
+    SearchLight.Migration.all_down!!()
 
     # testBook = Book(title="Faust", author="Goethe")
 

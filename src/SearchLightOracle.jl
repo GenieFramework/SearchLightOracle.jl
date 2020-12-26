@@ -132,6 +132,8 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
     else
         Oracle.execute(stmt)
         stmt.info.is_query == true ? Oracle.query(stmt) : nothing
+        #Until SearchLight will support transactions every transaction will commited
+        Oracle.commit()
     end
     ## each statment should be closed 
     Oracle.close(stmt)
@@ -229,37 +231,41 @@ end
 
   function SearchLight.Migration.create_sequence(name::Union{String,Symbol}) :: Nothing
     SearchLight.query("CREATE SEQUENCE $name")
-  
     nothing
   end
   
   function SearchLight.Migration.create_sequence(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: Nothing
-    SearchLight.Migration.create_sequence(sequence_name(table_name, column_name))
+    res_column_name = column_name == "" ? string(SearchLight.primary_key_name) : column_name
+    SearchLight.Migration.create_sequence(sequence_name(table_name, res_column_name))
+    nothing
+  end
+
+  function SearchLight.Migration.remove_sequence(name::Union{String,Symbol}, options::Union{String,Symbol}) :: Nothing
+    SearchLight.query("DROP SEQUENCE $name $options", internal = true)
+  
+    nothing
   end
 
   function SearchLight.Migration.column_id(name::Union{String,Symbol} = "id", options::Union{String,Symbol} = ""; constraint::Union{String,Symbol} = "", nextval::Union{String,Symbol} = "") :: String
     "$name NUMBER(10) NOT NULL $options"
   end
 
-  function SearchLight.Migration.create_id_nextval_trigger(table::Union{String,Symbol}, sequenceName::String = "",triggername::String = "")
-     if sequenceName == ""
-      sequ_name = sequence_name(table,string(SearchLight.pk())) 
-     else
-      sequ_name = sequenceName
-     end 
-    trigger_name = triggername == "" ? string(table) * "_" * SearchLight.primary_key_name : triggername
+  function SearchLight.Migration.create_id_nextval_trigger(table::Union{String,Symbol}, sequenceName::String = "",triggername::String = "", id_name="id")
+    sequ_name = sequenceName == "" ? sequ_name = sequence_name(table,string(SearchLight.primary_key_name)) : 
+                                        sequ_name = sequenceName
+
+    trigger_name = triggername == "" ? string(table) * "_" * string(SearchLight.primary_key_name) : triggername
     sqlString = """CREATE OR REPLACE TRIGGER $trigger_name 
                     BEFORE INSERT ON $(string(table)) 
                     FOR EACH ROW
-                    WHEN (new.$(SearchLight.primary_key_name) IS NULL)
+                    WHEN (new.$id_name IS NULL)
                     BEGIN
                         SELECT $(sequ_name).NEXTVAL
-                        INTO   :new.$(SearchLight.primary_key_name)
+                        INTO   :new.$id_name
                         FROM   dual;
-                    END """
-
-    SearchLight.query(sqlStrinng)
-    sqlString
+                    END; """
+    println(sqlString)
+    SearchLight.query(sqlString)
   end
 
 ########################################################################
