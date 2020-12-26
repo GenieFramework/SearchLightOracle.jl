@@ -132,7 +132,7 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
     else
         Oracle.execute(stmt)
         stmt.info.is_query == true ? Oracle.query(stmt) : nothing
-        #Until SearchLight will support transactions every transaction will commited
+        #Until SearchLight will for its own support transactions every transaction will commited
         Oracle.commit(SearchLight.connection())
     end
     ## each statment should be closed 
@@ -177,9 +177,12 @@ end
     sql = if ! SearchLight.ispersisted(m) || (SearchLight.ispersisted(m) && conflict_strategy == :update)
       key = getkey(uf, SearchLight.primary_key_name(m), nothing)
       key !== nothing && pop!(uf, key)
+
+      id_column = SearchLight.pk(m) != "" ?  SearchLight.pk(m) * ", " : ""
+      id_value = id_column == "" ? "," * get_new_Id_value(m) : ""
   
-      fields = SearchLight.SQLColumn(uf)
-      vals = join( map(x -> string(SearchLight.to_sqlinput(m, Symbol(x), getfield(m, Symbol(x)))), collect(keys(uf))), ", ")
+      fields = id_column * "," * SearchLight.SQLColumn(uf)
+      vals = id_value * join( map(x -> string(SearchLight.to_sqlinput(m, Symbol(x), getfield(m, Symbol(x)))), collect(keys(uf))), ", ")
   
       "INSERT INTO $(SearchLight.table(typeof(m))) ( $fields ) VALUES ( $vals )" *
           if ( conflict_strategy == :error ) ""
@@ -194,6 +197,17 @@ end
     end
   
     return string(sql, " RETURNING $(SearchLight.primary_key_name(m));")
+  end
+
+  function get_new_Id_value(m::T) where {T<:SearchLight.AbstractModel}
+    sequenceName = sequence_name_pk(m)
+    sql = "SELECT sequence_name FROM user_sequences WHERE SEQUENCE_name = '$sequenceName'"
+    erg = SearchLight.query(sql)
+    isempty(erg) && SearchLight.Migration.create_sequence(sequenceName) 
+    sql = "select $sequenceName.nextval from dual"
+    erg = SearchLight.query(sql)
+    !isempty(erg) ? result = erg[1,1] : throw(SearchLight.Exceptions.DatabaseAdapterException("Sequence $sequenceName could not be created"))
+    return result
   end
   
   function prepare_update_part(m::T)::String where {T<:SearchLight.AbstractModel}
@@ -266,6 +280,34 @@ end
                     END; """
     println(sqlString)
     SearchLight.query(sqlString)
+  end
+
+  """
+    escape_column_name(c::String, conn::DatabaseHandle)::String
+
+    Escapes the column name.
+
+    # Examples
+    ```julia
+    julia>
+    ```
+  """
+  function SearchLight.escape_column_name(c::String, conn::DatabaseHandle = SearchLight.connection()) :: String
+    join(["""\"$(replace(cx, "\""=>"'"))\"""" for cx in split(c, '.')], '.')
+  end
+
+  """
+    escape_value{T}(v::T, conn::DatabaseHandle)::T
+
+    Escapes the value `v` using native features provided by the database backend if available.
+
+    # Examples
+    ```julia
+    julia>
+    ```
+  """
+  function SearchLight.escape_value(v::T, conn::DatabaseHandle = SearchLight.connection())::T where {T}
+    isa(v, Number) ? v : "E'$(replace(string(v), "'"=>"\\'"))'"
   end
 
 ########################################################################
@@ -407,6 +449,26 @@ end
 function getEnvironmentInfo(sql::String)
     df = SearchLight.query(sql) |> DataFrames.DataFrame
     return df[1,1]
+end
+
+"""
+  function sequence_name_pk(m::T) where {T<:AbstractModel}
+Oracle doesn't support the returning of a value direct within the insert or update statement.
+Therefor it is nesessary to use it directly in preparing insert or update statement   
+"""
+
+function sequence_name_pk(m::T) where {T<:SearchLight.AbstractModel}
+  sequence_name_pk(typeof(m))
+end
+
+function sequence_name_pk(m::Type{T}) where {T<:SearchLight.AbstractModel}
+  sequence_name_pk(SearchLight.Inflector.to_plural(string(m)))
+end
+
+function sequence_name_pk(table::Union{String,Symbol})
+  default_sequence = uppercase(string(table))
+  default_sequence *= "__SEQ_"
+  default_sequence *= uppercase(SearchLight.Inflector.tosingular(string(table))) * "_PK"
 end
 
 
