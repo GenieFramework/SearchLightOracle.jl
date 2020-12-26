@@ -132,10 +132,10 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
     else
         Oracle.execute(stmt)
         stmt.info.is_query == true ? Oracle.query(stmt) : nothing
-        #Until SearchLight will for its own support transactions every transaction will commited
     end
-    ## each statment should be closed 
-    stmt.info.is_query == false && Oracle.commit(SearchLight.connection())
+    #Until SearchLight will for its own support transactions every transaction will commited 
+    stmt.info.is_query == false && println("Commit würde ausgelöst") #Oracle.commit(SearchLight.connection())
+    ## each statment should be closed
     Oracle.close(stmt)
     
     result === nothing ? DataFrames.DataFrame() : result |> DataFrames.DataFrame
