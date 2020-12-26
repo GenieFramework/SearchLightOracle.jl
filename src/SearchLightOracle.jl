@@ -133,9 +133,9 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
         Oracle.execute(stmt)
         stmt.info.is_query == true ? Oracle.query(stmt) : nothing
         #Until SearchLight will for its own support transactions every transaction will commited
-        Oracle.commit(SearchLight.connection())
     end
     ## each statment should be closed 
+    stmt.info.is_query == false && Oracle.commit(SearchLight.connection())
     Oracle.close(stmt)
     
     result === nothing ? DataFrames.DataFrame() : result |> DataFrames.DataFrame

@@ -115,22 +115,21 @@ end;
   
   ## make Table "Book" 
     SearchLight.Generator.new_table_migration(Book)
-    SearchLight.Migration.all_up!!()
-    SearchLight.Migration.all_down!!()
+    SearchLight.Migration.up()
 
-    # testBook = Book(title="Faust", author="Goethe")
+    testBook = Book(title="Faust", author="Goethe")
 
-    # @test testBook.author == "Goethe"
-    # @test testBook.title == "Faust"
-    # @test typeof(testBook) == Book
-    # @test isa(testBook, AbstractModel)
+    @test testBook.author == "Goethe"
+    @test testBook.title == "Faust"
+    @test typeof(testBook) == Book
+    @test isa(testBook, AbstractModel)
 
-    # testBook |> SearchLight.save
+    testBook |> SearchLight.save
 
     # @test testBook |> SearchLight.save == true
 
   ############ tearDown ##################
-
+    SearchLight.Migration.down()
     tearDown(conn)
 
 end
