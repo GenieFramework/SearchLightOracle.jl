@@ -82,17 +82,18 @@ function SearchLight.Migration.drop_migrations_table(table_name::String = Search
 end
 
 function SearchLight.Migration.drop_table(table_name::Union{String,Symbol}) :: Nothing
-  queryString = string("""SELECT 
-                              table_name 
-                          FROM 
-                              USER_TABLES t 
-                          WHERE 
-                              table_name = '$(uppercase(string(table_name)))'""")
-
+  queryString = string("""SELECT  table_name FROM USER_TABLES t WHERE table_name = '$(uppercase(string(table_name)))'""")
   if !isempty(SearchLight.query(queryString)) 
-
+      ## Drop table 
       Oracle.execute(SearchLight.connection(),"DROP TABLE $(uppercase(string(table_name)))")
       @info "Droped table $table_name"
+      ## Drop pk() sequence
+      queryString = "SELECT sequence_name FROM user_sequences WHERE SEQUENCE_name = '$(sequence_name_pk(table_name))'"
+      if !isempty(SearchLight.query(queryString))
+        SearchLight.Migration.drop_sequence(sequence_name_pk(table_name))
+      else
+        @info "No sequence to drop while dropping table"
+      end
   else
       @info "Nothing to drop"
   end
@@ -101,10 +102,10 @@ function SearchLight.Migration.drop_table(table_name::Union{String,Symbol}) :: N
 end
 
 """
-    create_migrations_table(table_name::String)::Nothing
+create_migrations_table -- creates the needed migration table
 
-Runs a SQL DB query that creates the table `table_name` with the structure needed to be used as the DB migrations table.
-The table should contain one column, `version`, unique, as a string of maximum 30 chars long.
+  Runs a SQL DB query that creates the table `table_name` with the structure needed to be used as the DB migrations table.
+  The table should contain one column, `version`, unique, as a string of maximum 30 chars long.
 """
 function SearchLight.Migration.create_migrations_table(table_name::String = SearchLight.config.db_migrations_table_name) :: Nothing
   
@@ -123,22 +124,23 @@ end
 function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.connection(); internal = false) :: DataFrames.DataFrame
     
     #preparing the statement
-    stmt = stmt = Oracle.Stmt(conn, sql)
+    stmt = Oracle.Stmt(conn, sql)
     #execute the query statement
     result = if SearchLight.config.log_queries && ! internal
-        @info sql
-        @time Oracle.execute(stmt)       
-        stmt.info.is_query == true ? Oracle.query(stmt) : nothing
+        @info sql    
+        stmt.info.is_query == true ? Oracle.query(stmt) : @time Oracle.execute(stmt)
     else
-        Oracle.execute(stmt)
-        stmt.info.is_query == true ? Oracle.query(stmt) : nothing
+        stmt.info.is_query == true ? Oracle.query(stmt) : Oracle.execute(stmt)
     end
     #Until SearchLight will for its own support transactions every transaction will commited 
-    stmt.info.is_query == false && println("Commit würde ausgelöst") #Oracle.commit(SearchLight.connection())
+    stmt.info.is_query == false && Oracle.commit(SearchLight.connection())
     ## each statment should be closed
     Oracle.close(stmt)
+
+    ## if the statement is an insert-stmt bring back the actual val of the sequence
+    result = isInsertStmt(sql) ? current_value_seq(conn, sql) : result
     
-    result === nothing ? DataFrames.DataFrame() : result |> DataFrames.DataFrame
+    typeof(result) != Oracle.ResultSet ? DataFrames.DataFrame() : result |> DataFrames.DataFrame
 end
 
 ### fallback function if storableFields not defined in the module
@@ -150,165 +152,162 @@ function storableFields(m::Type{T})::Dict{String,String} where {T<:SearchLight.A
     return tmpStorage
 end
   
-  """
-    Only direct storable fields will be returnd by this function.
-    The fields with an AbstractModel-field or array will be stored temporarly 
-    in the saving method and saved after returning the parent struct.
-  """
-  function fields_to_store_directly(m::Type{T}) where {T<:SearchLight.AbstractModel}
-  
-    storage_fields = storableFields(m)
-    fields_and_types = SearchLight.to_string_dict(m)
-    uf=Dict{String,String}()
-  
-    for (key,value) in storage_fields
-      if !(fields_and_types[key]<:SearchLight.AbstractModel || fields_and_types[key]<:Array{<:SearchLight.AbstractModel,1})
-        push!(uf,key => value)
-      end
+"""
+  Only direct storable fields will be returnd by this function.
+  The fields with an AbstractModel-field or array will be stored temporarly 
+  in the saving method and saved after returning the parent struct.
+"""
+function fields_to_store_directly(m::Type{T}) where {T<:SearchLight.AbstractModel}
+
+  storage_fields = storableFields(m)
+  fields_and_types = SearchLight.to_string_dict(m)
+  uf=Dict{String,String}()
+
+  for (key,value) in storage_fields
+    if !(fields_and_types[key]<:SearchLight.AbstractModel || fields_and_types[key]<:Array{<:SearchLight.AbstractModel,1})
+      push!(uf,key => value)
     end
+  end
+
+  return uf
+end
+
+function SearchLight.to_store_sql(m::T; conflict_strategy = :error)::String where {T<:SearchLight.AbstractModel}
+
+  uf = fields_to_store_directly(typeof(m))
+
+  sql = if ! SearchLight.ispersisted(m) || (SearchLight.ispersisted(m) && conflict_strategy == :update)
+    key = getkey(uf, SearchLight.primary_key_name(m), nothing)
+    key !== nothing && pop!(uf, key)
   
-    return uf
-  end
-
-  function SearchLight.to_store_sql(m::T; conflict_strategy = :error)::String where {T<:SearchLight.AbstractModel}
+    id_column = SearchLight.pk(m) != "" ?  SearchLight.pk(m) * ", " : ""
+    id_value = id_column != "" ?  sequence_name_pk(m)*".nextval, " : ""
   
-    uf = fields_to_store_directly(typeof(m))
+    fields = id_column * join(SearchLight.SQLColumn(uf),", ")
+    vals = id_value * join( map(x -> string(SearchLight.to_sqlinput(m, Symbol(x), getfield(m, Symbol(x)))), collect(keys(uf))), ", ")
   
-    sql = if ! SearchLight.ispersisted(m) || (SearchLight.ispersisted(m) && conflict_strategy == :update)
-      key = getkey(uf, SearchLight.primary_key_name(m), nothing)
-      key !== nothing && pop!(uf, key)
+    "INSERT INTO $(SearchLight.table(typeof(m))) ( $fields ) VALUES ( $vals )" *
+        if ( conflict_strategy == :error ) ""
+        elseif ( conflict_strategy == :ignore ) " ON CONFLICT DO NOTHING"
+        end
+  else
+    prepare_update_part(m)
+  end
 
-      id_column = SearchLight.pk(m) != "" ?  SearchLight.pk(m) * ", " : ""
-      id_value = id_column == "" ? "," * get_new_Id_value(m) : ""
+  return sql
+end
+
+function get_new_Id_value(m::T) where {T<:SearchLight.AbstractModel}
+  sequenceName = sequence_name_pk(m)
+  sql = "SELECT sequence_name FROM user_sequences WHERE SEQUENCE_name = '$sequenceName'"
+  erg = SearchLight.query(sql)
+  isempty(erg) && SearchLight.Migration.create_sequence(sequenceName) 
+  sql = "select $sequenceName.nextval from dual"
+  erg = SearchLight.query(sql)
+  !isempty(erg) ? result = erg[1,1] : throw(SearchLight.Exceptions.DatabaseAdapterException("Sequence $sequenceName could not be created"))
+  return result
+end
   
-      fields = id_column * "," * SearchLight.SQLColumn(uf)
-      vals = id_value * join( map(x -> string(SearchLight.to_sqlinput(m, Symbol(x), getfield(m, Symbol(x)))), collect(keys(uf))), ", ")
-  
-      "INSERT INTO $(SearchLight.table(typeof(m))) ( $fields ) VALUES ( $vals )" *
-          if ( conflict_strategy == :error ) ""
-          elseif ( conflict_strategy == :ignore ) " ON CONFLICT DO NOTHING"
-          elseif ( conflict_strategy == :update &&
-            getfield(m, Symbol(SearchLight.primary_key_name(m))).value !== nothing )
-              " ON CONFLICT ($(SearchLight.primary_key_name(m))) DO UPDATE SET $(SearchLight.update_query_part(m))"
-          else ""
-          end
-    else
-      prepare_update_part(m)
-    end
-  
-    return string(sql, " RETURNING $(SearchLight.primary_key_name(m));")
+function prepare_update_part(m::T)::String where {T<:SearchLight.AbstractModel}
+
+  result = ""
+  sub_abstracts = SearchLight.array_sub_abstract_models(m)
+
+  if !isempty(sub_abstracts)
+    result = join(prepare_update_part.(sub_abstracts),";",";")
+    result *= ";"
+  end 
+  result *= "UPDATE $(SearchLight.table(typeof(m))) SET $(SearchLight.update_query_part(m))"
+end
+
+function SearchLight.Migration.create_table(f::Function, name::Union{String,Symbol}, options::Union{String,Symbol} = "") :: Nothing
+  SearchLight.query(create_table_sql(f, string(name), options), internal = true)
+
+  nothing
+end
+
+function create_table_sql(f::Function, name::String, options::String = "") :: String
+  "CREATE TABLE $name (" * join(f()::Vector{String}, ", ") * ") $options" |> strip
+end
+
+function SearchLight.Migration.column(name::Union{String,Symbol}, column_type::Union{String,Symbol}, options::Any = ""; default::Any = nothing, limit::Union{Int,Nothing,String} = nothing, not_null::Bool = false) :: String
+  "$name $(TYPE_MAPPINGS[column_type] |> string) " *
+    (default === nothing ? "" : " DEFAULT $default ") *
+    (not_null ? " NOT NULL " : "") *
+    string(options)
+end
+
+function sequence_name(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: String
+  string(table_name) * "__" * "seq_" * string(column_name)
+end
+
+function SearchLight.Migration.create_sequence(name::Union{String,Symbol}) :: Nothing
+  SearchLight.query("CREATE SEQUENCE $name")
+  nothing
+end
+
+function SearchLight.Migration.create_sequence(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: Nothing
+  res_column_name = column_name == "" ? string(SearchLight.primary_key_name) : column_name
+  SearchLight.Migration.create_sequence(sequence_name(table_name, res_column_name))
+  nothing
+end
+
+function SearchLight.Migration.remove_sequence(name::Union{String,Symbol}, options::Union{String,Symbol}) :: Nothing
+  SearchLight.query("DROP SEQUENCE $name $options", internal = true)
+
+  nothing
+end
+
+function SearchLight.Migration.column_id(name::Union{String,Symbol} = "id", options::Union{String,Symbol} = ""; constraint::Union{String,Symbol} = "", nextval::Union{String,Symbol} = "") :: String
+  "$name NUMBER(10) NOT NULL $options"
+end
+
+"""
+  escape_column_name(c::String, conn::DatabaseHandle)::String
+
+  Escapes the column name.
+
+  # Examples
+  ```julia
+  julia>
+  ```
+"""
+function SearchLight.escape_column_name(c::String, conn::DatabaseHandle = SearchLight.connection()) :: String
+  join([cx for cx in split(c, '.')], '.')
+end
+
+"""
+  escape_value{T}(v::T, conn::DatabaseHandle)::T
+
+  Escapes the value `v` using native features provided by the database backend if available.
+
+  # Examples
+  ```julia
+  julia>
+  ```
+"""
+function SearchLight.escape_value(v::T, conn::DatabaseHandle = SearchLight.connection())::T where {T}
+  isa(v, Number) ? v : "'$(replace(string(v), "'"=>"\\'"))'"
+end
+
+"""
+current_value_seq -- value of a given sequence
+
+  Returns the actual value of a given insert statement, theoreticaly also from a select statemnt.
+  The prerequisite for this is the calling of nextval for this particulary squence in the actual session
+"""
+function current_value_seq(conn::SearchLightOracle.DatabaseHandle, sql::String)::Union{Oracle.ResultSet,Nothing}
+  m  = match(r"(?i)\w+__SEQ_\w+_PK\.NEXTVAL",sql)
+  sequenceName = m !== nothing ?  split(m.match,".")[1] : nothing
+  if sequenceName !== nothing
+    sql = "select $sequenceName.currval from dual"
+    stmt = Oracle.Stmt(conn,sql)
+    result = Oracle.query(stmt)
+  else
+    result = nothing
   end
-
-  function get_new_Id_value(m::T) where {T<:SearchLight.AbstractModel}
-    sequenceName = sequence_name_pk(m)
-    sql = "SELECT sequence_name FROM user_sequences WHERE SEQUENCE_name = '$sequenceName'"
-    erg = SearchLight.query(sql)
-    isempty(erg) && SearchLight.Migration.create_sequence(sequenceName) 
-    sql = "select $sequenceName.nextval from dual"
-    erg = SearchLight.query(sql)
-    !isempty(erg) ? result = erg[1,1] : throw(SearchLight.Exceptions.DatabaseAdapterException("Sequence $sequenceName could not be created"))
-    return result
-  end
-  
-  function prepare_update_part(m::T)::String where {T<:SearchLight.AbstractModel}
-  
-    result = ""
-    sub_abstracts = SearchLight.array_sub_abstract_models(m)
-  
-    if !isempty(sub_abstracts)
-      result = join(prepare_update_part.(sub_abstracts),";",";")
-      result *= ";"
-    end 
-    result *= "UPDATE $(SearchLight.table(typeof(m))) SET $(SearchLight.update_query_part(m))"
-  end
-
-  function SearchLight.Migration.create_table(f::Function, name::Union{String,Symbol}, options::Union{String,Symbol} = "") :: Nothing
-    SearchLight.query(create_table_sql(f, string(name), options), internal = true)
-  
-    nothing
-  end
-
-  function create_table_sql(f::Function, name::String, options::String = "") :: String
-    "CREATE TABLE $name (" * join(f()::Vector{String}, ", ") * ") $options" |> strip
-  end
-
-  function SearchLight.Migration.column(name::Union{String,Symbol}, column_type::Union{String,Symbol}, options::Any = ""; default::Any = nothing, limit::Union{Int,Nothing,String} = nothing, not_null::Bool = false) :: String
-    "$name $(TYPE_MAPPINGS[column_type] |> string) " *
-      (default === nothing ? "" : " DEFAULT $default ") *
-      (not_null ? " NOT NULL " : "") *
-      string(options)
-  end
-
-  function sequence_name(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: String
-    string(table_name) * "__" * "seq_" * string(column_name)
-  end
-
-  function SearchLight.Migration.create_sequence(name::Union{String,Symbol}) :: Nothing
-    SearchLight.query("CREATE SEQUENCE $name")
-    nothing
-  end
-  
-  function SearchLight.Migration.create_sequence(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: Nothing
-    res_column_name = column_name == "" ? string(SearchLight.primary_key_name) : column_name
-    SearchLight.Migration.create_sequence(sequence_name(table_name, res_column_name))
-    nothing
-  end
-
-  function SearchLight.Migration.remove_sequence(name::Union{String,Symbol}, options::Union{String,Symbol}) :: Nothing
-    SearchLight.query("DROP SEQUENCE $name $options", internal = true)
-  
-    nothing
-  end
-
-  function SearchLight.Migration.column_id(name::Union{String,Symbol} = "id", options::Union{String,Symbol} = ""; constraint::Union{String,Symbol} = "", nextval::Union{String,Symbol} = "") :: String
-    "$name NUMBER(10) NOT NULL $options"
-  end
-
-  function SearchLight.Migration.create_id_nextval_trigger(table::Union{String,Symbol}, sequenceName::String = "",triggername::String = "", id_name="id")
-    sequ_name = sequenceName == "" ? sequ_name = sequence_name(table,string(SearchLight.primary_key_name)) : 
-                                        sequ_name = sequenceName
-
-    trigger_name = triggername == "" ? string(table) * "_" * string(SearchLight.primary_key_name) : triggername
-    sqlString = """CREATE OR REPLACE TRIGGER $trigger_name 
-                    BEFORE INSERT ON $(string(table)) 
-                    FOR EACH ROW
-                    WHEN (new.$id_name IS NULL)
-                    BEGIN
-                        SELECT $(sequ_name).NEXTVAL
-                        INTO   :new.$id_name
-                        FROM   dual;
-                    END; """
-    println(sqlString)
-    SearchLight.query(sqlString)
-  end
-
-  """
-    escape_column_name(c::String, conn::DatabaseHandle)::String
-
-    Escapes the column name.
-
-    # Examples
-    ```julia
-    julia>
-    ```
-  """
-  function SearchLight.escape_column_name(c::String, conn::DatabaseHandle = SearchLight.connection()) :: String
-    join(["""\"$(replace(cx, "\""=>"'"))\"""" for cx in split(c, '.')], '.')
-  end
-
-  """
-    escape_value{T}(v::T, conn::DatabaseHandle)::T
-
-    Escapes the value `v` using native features provided by the database backend if available.
-
-    # Examples
-    ```julia
-    julia>
-    ```
-  """
-  function SearchLight.escape_value(v::T, conn::DatabaseHandle = SearchLight.connection())::T where {T}
-    isa(v, Number) ? v : "E'$(replace(string(v), "'"=>"\\'"))'"
-  end
+  return result 
+end
 
 ########################################################################
 #                                                                      #
@@ -469,6 +468,11 @@ function sequence_name_pk(table::Union{String,Symbol})
   default_sequence = uppercase(string(table))
   default_sequence *= "__SEQ_"
   default_sequence *= uppercase(SearchLight.Inflector.tosingular(string(table))) * "_PK"
+end
+
+function isInsertStmt(sql::String)::Bool
+  m =  match(r"(?i)insert", sql)
+  m !== nothing ? true : false
 end
 
 

@@ -187,7 +187,6 @@ module TestModels
       print(io,"Firstname: $(author.first_name) Lastname: $(author.last_name) books: $(length(author.books))")
   end
 
-
   """
     function addBook(author::Author, book::BookWithAuthor)
       attach a book to an author 
