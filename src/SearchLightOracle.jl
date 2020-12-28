@@ -122,7 +122,8 @@ function SearchLight.Migration.create_migrations_table(table_name::String = Sear
 end
 
 function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.connection(); internal = false) :: DataFrames.DataFrame
-    
+    #initialize DataFrame
+    df = DataFrames.DataFrame()
     #preparing the statement
     stmt = Oracle.Stmt(conn, sql)
     #execute the query statement
@@ -138,9 +139,15 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
     Oracle.close(stmt)
 
     ## if the statement is an insert-stmt bring back the actual val of the sequence
-    result = isInsertStmt(sql) ? current_value_seq(conn, sql) : result
+    if isInsertStmt(sql) 
+      seq_result, pk_name =  current_value_seq(conn, sql)
+      if pk_name != ""
+        df = seq_result |> DataFrames.DataFrame
+        rename(df,1=>Symbol(pk_name)) 
+      end
+    end 
     
-    typeof(result) != Oracle.ResultSet ? DataFrames.DataFrame() : result |> DataFrames.DataFrame
+    typeof(result) != Oracle.ResultSet ? df : result |> DataFrames.DataFrame
 end
 
 ### fallback function if storableFields not defined in the module
@@ -300,13 +307,20 @@ function current_value_seq(conn::SearchLightOracle.DatabaseHandle, sql::String):
   m  = match(r"(?i)\w+__SEQ_\w+_PK\.NEXTVAL",sql)
   sequenceName = m !== nothing ?  split(m.match,".")[1] : nothing
   if sequenceName !== nothing
+    closures = eachmatch(r"\((.*?)\)", sql)
+    matches  = [exp.match for exp in closures]
+    matchStrings = [strip(w, [' ', '(', ')']) for w in matches]
+    closureFields = split.(matchStrings,",")
+    index_id = findfirst(x->occursin(sequenceName,x), closureFields[2])
+    id_name = index_id !== nothing ? strip(closureFields[1][index_id]) : ""
+
     sql = "select $sequenceName.currval from dual"
     stmt = Oracle.Stmt(conn,sql)
     result = Oracle.query(stmt)
   else
     result = nothing
   end
-  return result 
+  return result, id_name 
 end
 
 ########################################################################
