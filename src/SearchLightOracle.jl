@@ -234,6 +234,15 @@ function SearchLight.to_offset_part(o::Int) :: String
   o != 0 ? string("OFFSET ", string(o)) : ""
 end
 
+function SearchLight.update_query_part(m::T)::String where {T<:SearchLight.AbstractModel}
+
+  uf = fields_to_store_directly(typeof(m))
+
+  update_values = join(map(x -> "$(string(SearchLight.SQLColumn(uf[x]))) = $(string(SearchLight.to_sqlinput(m, Symbol(x), getfield(m, Symbol(x)))) )", collect(keys(uf))), ", ")
+
+  " $update_values WHERE $(SearchLight.table(typeof(m))).$(SearchLight.primary_key_name(typeof(m))) = '$(m.id.value)'"
+end
+
 ### fallback function if storableFields not defined in the module
 function storableFields(m::Type{T})::Dict{String,String} where {T<:SearchLight.AbstractModel}
     tmpStorage = Dict{String,String}()
