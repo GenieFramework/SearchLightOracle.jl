@@ -357,6 +357,10 @@ function SearchLight.Migration.remove_sequence(name::Union{String,Symbol}, optio
   nothing
 end
 
+function SearchLight.Migration.remove_sequence(name::Union{String,Symbol}) :: Nothing()
+  SearchLight.Migration.remove_sequence(name,"")
+end
+
 function SearchLight.Migration.column_id(name::Union{String,Symbol} = "id", options::Union{String,Symbol} = ""; constraint::Union{String,Symbol} = "", nextval::Union{String,Symbol} = "") :: String
   "$name NUMBER(10) NOT NULL $options"
 end
