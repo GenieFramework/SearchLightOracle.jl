@@ -126,7 +126,7 @@ end;
 
     testBook |> SearchLight.save
 
-    # @test testBook |> SearchLight.save == true
+    @test testBook |> SearchLight.save == true
 
   ############ tearDown ##################
     SearchLight.Migration.down()

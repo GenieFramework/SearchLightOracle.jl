@@ -295,17 +295,6 @@ function SearchLight.to_store_sql(m::T; conflict_strategy = :error)::String wher
 
   return sql
 end
-
-function get_new_Id_value(m::T) where {T<:SearchLight.AbstractModel}
-  sequenceName = sequence_name_pk(m)
-  sql = "SELECT sequence_name FROM user_sequences WHERE SEQUENCE_name = '$sequenceName'"
-  erg = SearchLight.query(sql)
-  isempty(erg) && SearchLight.Migration.create_sequence(sequenceName) 
-  sql = "select $sequenceName.nextval from dual"
-  erg = SearchLight.query(sql)
-  !isempty(erg) ? result = erg[1,1] : throw(SearchLight.Exceptions.DatabaseAdapterException("Sequence $sequenceName could not be created"))
-  return result
-end
   
 function prepare_update_part(m::T)::String where {T<:SearchLight.AbstractModel}
 
@@ -321,6 +310,8 @@ end
 
 function SearchLight.Migration.create_table(f::Function, name::Union{String,Symbol}, options::Union{String,Symbol} = "") :: Nothing
   SearchLight.query(create_table_sql(f, string(name), options), internal = true)
+  SearchLight.Migration.create_sequence(sequence_name_pk(name))
+  SearchLight.query("select $(sequence_name_pk(name)).nextval from dual")
 
   nothing
 end
