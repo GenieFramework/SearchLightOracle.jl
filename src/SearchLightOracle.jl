@@ -121,8 +121,21 @@ function SearchLight.Migration.create_migrations_table(table_name::String = Sear
   nothing
 end
 
+function column_names_from_select(sql::String)
+  #initializing return array
+  result = String[]
+  # matches the statement between select .... from 
+  rawmatch = match(r"(?i)(?s)(?<=Select).*?(?=From)", sql).match
+  if rawmatch !== nothing
+    match_without_linebr = strip(replace(rawmatch,r"\R"=>""))
+    items = [split(item,r"\s+")   for item in split(match_without_linebr,",")]
+    result = [last(filter(x->!isempty(x),item))  for item in items]
+  end
+  result 
+end
+
 function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.connection(); internal = false) :: DataFrames.DataFrame
-    #initialize DataFrame
+    #initializing the dataframe
     df = DataFrames.DataFrame()
     #preparing the statement
     stmt = Oracle.Stmt(conn, sql)
@@ -135,19 +148,90 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
     end
     #Until SearchLight will for its own support transactions every transaction will commited 
     stmt.info.is_query == false && Oracle.commit(SearchLight.connection())
-    ## each statment should be closed
-    Oracle.close(stmt)
 
     ## if the statement is an insert-stmt bring back the actual val of the sequence
     if isInsertStmt(sql) 
-      seq_result, pk_name =  current_value_seq(conn, sql)
-      if pk_name != ""
-        df = seq_result |> DataFrames.DataFrame
-        rename(df,1=>Symbol(pk_name)) 
-      end
-    end 
-    
-    typeof(result) != Oracle.ResultSet ? df : result |> DataFrames.DataFrame
+       id_result, id_name = current_value_seq(conn, sql) 
+       if id_name != "" 
+          df = id_result |> DataFrames.DataFrame
+          DataFrames.rename!(df,[1=>id_name])
+       end
+    end
+
+    #get back the original column_names for the dataframe
+    if stmt.info.is_query 
+      #get the dataframe 
+      df = DataFrames.DataFrame(result)
+      realColumn_names = column_names_from_select(sql)
+      colNames_df = names(df)
+      indices = findall(x->uppercase(x) in colNames_df, realColumn_names)
+      DataFrames.rename!(df,[index => Symbol(realColumn_names[index]) for index in indices])
+    end
+     ## each statment should be closed
+     Oracle.close(stmt)
+     @info "hinter close statement angekommen df $(names(df)[1]) "
+    typeof(result) != Oracle.ResultSet || !isempty(df) ? df : result |> DataFrames.DataFrame
+end
+
+function SearchLight.to_find_sql(m::Type{T}, q::SearchLight.SQLQuery, joins::Union{Nothing,Vector{SearchLight.SQLJoin{N}}} = nothing)::String where {T<:SearchLight.AbstractModel, N<:Union{Nothing,SearchLight.AbstractModel}}
+  sql::String = ( string("$(SearchLight.to_select_part(m, q.columns, joins)) $(SearchLight.to_from_part(m)) $(SearchLight.to_join_part(m, joins)) $(SearchLight.to_where_part(q.where)) ",
+                      "$(SearchLight.to_group_part(q.group)) $(SearchLight.to_having_part(q.having)) $(SearchLight.to_order_part(m, q.order)) ",
+                      "$(SearchLight.to_limit_part(q.limit)) $(SearchLight.to_offset_part(q.offset))")) |> strip
+  replace(sql, r"\s+"=>" ")
+end
+
+function SearchLight.to_from_part(m::Type{T})::String where {T<:SearchLight.AbstractModel}
+  "FROM " * SearchLight.escape_column_name(SearchLight.table(m), SearchLight.connection())
+end
+
+function SearchLight.to_join_part(m::Type{T}, joins::Union{Nothing,Vector{SearchLight.SQLJoin{N}}} = nothing)::String where {T<:SearchLight.AbstractModel, N<:Union{Nothing,SearchLight.AbstractModel}}
+  joins === nothing && return ""
+
+  join(map(x -> string(x), joins), " ")
+end
+
+function SearchLight.to_where_part(w::Vector{SearchLight.SQLWhereEntity})::String
+  where = isempty(w) ?
+          "" :
+          string("WHERE ",
+                (string(first(w).condition) == "AND" ? "TRUE " : "FALSE "),
+                join(map(wx -> string(wx), w), " "))
+
+  replace(where, r"WHERE TRUE AND "i => "WHERE ")
+end
+
+function SearchLight.to_group_part(g::Vector{SearchLight.SQLColumn}) :: String
+  isempty(g) ?
+    "" :
+    string(" GROUP BY ", join(map(x -> string(x), g), ", "))
+end
+
+function SearchLight.to_having_part(h::Vector{SearchLight.SQLWhereEntity}) :: String
+  having =  isempty(h) ?
+            "" :
+            string("HAVING ",
+                  (string(first(h).condition) == "AND" ? "TRUE " : "FALSE "),
+                  join(map(w -> string(w), h), " "))
+
+  replace(having, r"HAVING TRUE AND "i => "HAVING ")
+end
+
+function SearchLight.to_order_part(m::Type{T}, o::Vector{SearchLight.SQLOrder})::String where {T<:SearchLight.AbstractModel}
+  isempty(o) ?
+    "" :
+    string("ORDER BY ",
+            join(map(x -> string((! SearchLight.is_fully_qualified(x.column.value) ?
+                                    SearchLight.to_fully_qualified(m, x.column) :
+                                    x.column.value), " ", x.direction),
+                      o), ", "))
+end
+
+function SearchLight.to_limit_part(l::SearchLight.SQLLimit) :: String
+  l.value != "ALL" ? string("LIMIT ", string(l)) : ""
+end
+
+function SearchLight.to_offset_part(o::Int) :: String
+  o != 0 ? string("OFFSET ", string(o)) : ""
 end
 
 ### fallback function if storableFields not defined in the module
@@ -303,8 +387,9 @@ current_value_seq -- value of a given sequence
   Returns the actual value of a given insert statement, theoreticaly also from a select statemnt.
   The prerequisite for this is the calling of nextval for this particulary squence in the actual session
 """
-function current_value_seq(conn::SearchLightOracle.DatabaseHandle, sql::String)::Union{Oracle.ResultSet,Nothing}
+function current_value_seq(conn::SearchLightOracle.DatabaseHandle, sql::String)
   m  = match(r"(?i)\w+__SEQ_\w+_PK\.NEXTVAL",sql)
+  id_name = ""
   sequenceName = m !== nothing ?  split(m.match,".")[1] : nothing
   if sequenceName !== nothing
     closures = eachmatch(r"\((.*?)\)", sql)
@@ -320,133 +405,16 @@ function current_value_seq(conn::SearchLightOracle.DatabaseHandle, sql::String):
   else
     result = nothing
   end
-  return result, id_name 
+  return result, id_name
 end
 
-########################################################################
-#                                                                      #
-#           Not defined yet in Oracle.jl                               # 
-#                                                                      # 
-########################################################################
 
-## DataFrames.DataFrame
-""" 
-    Implementation of DataFrame for Oracle Resultsets
-"""
-function DataFrames.DataFrame(resultSet::Oracle.ResultSet)
-    rowSize, colSize = size(resultSet)
-    queryInfos = resultSet.schema.column_query_info
-    df = DataFrames.DataFrame()
-
-    ## column names
-    dictColumns = resultSet.schema.column_names_index
-    key_value_pairs = sort([(key,value) for (key,value) in dictColumns], by=x->x[2])
-    colNames = reshape([x[1] for x in key_value_pairs],1,colSize)
-
-    ## data 
-    matRes = Matrix{Any}(missing,rowSize,colSize)
-
-    ## Bring the data in Matrixform 
-    rowcount = 1
-    for row in resultSet.rows
-        for (key,value) in dictColumns
-            matRes[rowcount,value] = row.data[value]
-        end
-        rowcount += 1
-    end
-
-    ## calclulate the Types of Columns. Datatypes from raw data are exact. If no data are retried
-    ## datatypes from the queryInfos must be sufficient
-    resType = rowSize != 0 ? create_types_for_matrix(matRes,queryInfos) : juliaType_fromOracleType(queryInfos) 
-
-    ## fill the dataframe with columnNames and Types
-    for pair_Name_Nr in key_value_pairs
-         df[Symbol(pair_Name_Nr[1])]= resType[pair_Name_Nr[2]][]
-    end
-
-    for i in 1:rowSize
-        push!(df,matRes[i,:])
-    end
-
-    return df
-end
 
 ########################################################################
 #                                                                      #
 #           Utility funcitions                                         # 
 #                                                                      # 
 ########################################################################
-
-const changeDict = Dict([
-    Oracle.ORA_ORACLE_TYPE_NONE          => Any                 ,
-    Oracle.ORA_ORACLE_TYPE_VARCHAR       => String              ,  
-    Oracle.ORA_ORACLE_TYPE_NVARCHAR      => String              ,
-    Oracle.ORA_ORACLE_TYPE_CHAR          => Char                ,
-    Oracle.ORA_ORACLE_TYPE_NCHAR         => String              ,
-    Oracle.ORA_ORACLE_TYPE_ROWID         => String              ,
-    Oracle.ORA_ORACLE_TYPE_RAW           => Any                 ,
-    Oracle.ORA_ORACLE_TYPE_NATIVE_FLOAT  => Float64             ,
-    Oracle.ORA_ORACLE_TYPE_NATIVE_DOUBLE => Float64             ,
-    Oracle.ORA_ORACLE_TYPE_NATIVE_INT    => Int64               ,
-    Oracle.ORA_ORACLE_TYPE_NUMBER        => Number              ,
-    Oracle.ORA_ORACLE_TYPE_DATE          => Date                ,
-    Oracle.ORA_ORACLE_TYPE_TIMESTAMP     => DateTime            ,
-    Oracle.ORA_ORACLE_TYPE_TIMESTAMP_TZ  => Oracle.TimestampTZ  ,
-    Oracle.ORA_ORACLE_TYPE_TIMESTAMP_LTZ => Oracle.TimestampTZ  ,
-    Oracle.ORA_ORACLE_TYPE_INTERVAL_DS   => Any                 ,   
-    Oracle.ORA_ORACLE_TYPE_INTERVAL_YM   => Any                 ,
-    Oracle.ORA_ORACLE_TYPE_CLOB          => Oracle.Lob          ,
-    Oracle.ORA_ORACLE_TYPE_NCLOB         => Oracle.Lob          ,
-    Oracle.ORA_ORACLE_TYPE_BLOB          => Oracle.Lob          ,
-    Oracle.ORA_ORACLE_TYPE_BFILE         => Any                 ,
-    Oracle.ORA_ORACLE_TYPE_STMT          => Any                 ,  
-    Oracle.ORA_ORACLE_TYPE_BOOLEAN       => Bool                ,
-    Oracle.ORA_ORACLE_TYPE_OBJECT        => Any                 ,
-    Oracle.ORA_ORACLE_TYPE_LONG_VARCHAR  => String              ,
-    Oracle.ORA_ORACLE_TYPE_LONG_RAW      => Any                 ,
-    Oracle.ORA_ORACLE_TYPE_NATIVE_UINT   => Int64               ,
-    Oracle.ORA_ORACLE_TYPE_MAX           => Any             
-    ])  
-
-"""
-function juliaType_fromOracleType(columnInfo::Oracle.OraQueryInfo)::Type
-    
-    Returns the Julia datatype for a given OraQueryInfo. This function is only meant to use
-    if the no data returned form the database to show the nearly right result for building a 
-    dataframe.
-"""
-function juliaType_fromOracleType(columnInfo::Oracle.OraQueryInfo)::Type 
-        ora_datatype = columnInfo.type_info.oracle_type_num              
-        result =  haskey(changeDict,ora_datatype) ? changeDict[ora_datatype] : error("The type $ora_datatype is not supported by Oracle.jl")
-     return result
- end
- 
- 
- function juliaType_fromOracleType(columnInfos::Vector{T})::Array{Type,1} where {T<:Oracle.OraQueryInfo}
-     juliaType_fromOracleType.(columnInfos)
- end
-
- function create_types_for_matrix(matrix::Array{Any,2}, columnInfos::Vector{Oracle.OraQueryInfo})::Array{Type}
-    df = DataFrames.DataFrame()
-    resMatrix = []
-    rowsize, colsize = size(matrix)
-    typeArray = Type[]
-
-    for colNum in 1:colsize
-
-        typeCol = unique(map(x->typeof(x),matrix[:,colNum]))
-
-        typeDef =   if length(typeCol) == 1 && length(findall(x -> x==Missing, typeCol)) > 0
-                        ora_type = juliaType_fromOracleType(columnInfos[colNum])
-                        Union{ora_type,Missing}
-                    else
-                        filter!(x -> x != Missing ,typeCol)
-                        Union{typeCol[1],Missing}
-                    end
-        push!(typeArray,typeDef)
-    end
-    return typeArray
-end
 
 function connectionInfo()::Dict{String,Any}
 
@@ -488,6 +456,14 @@ function isInsertStmt(sql::String)::Bool
   m =  match(r"(?i)insert", sql)
   m !== nothing ? true : false
 end
+
+"""
+Returns the columnnames in a select statment case sensitive
+
+  It is meant to be a workaround that Oracle gaves back column names 
+  as uppercase strings. For the column names of the dataframes it is 
+  nesessary to bring that back to the original 
+"""
 
 
 
