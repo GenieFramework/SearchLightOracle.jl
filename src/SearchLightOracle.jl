@@ -169,8 +169,7 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
     end
      ## each statment should be closed
      Oracle.close(stmt)
-     @info "hinter close statement angekommen df $(names(df)[1]) "
-    typeof(result) != Oracle.ResultSet || !isempty(df) ? df : result |> DataFrames.DataFrame
+     typeof(result) != Oracle.ResultSet || !isempty(df) ? df : result |> DataFrames.DataFrame
 end
 
 function SearchLight.to_find_sql(m::Type{T}, q::SearchLight.SQLQuery, joins::Union{Nothing,Vector{SearchLight.SQLJoin{N}}} = nothing)::String where {T<:SearchLight.AbstractModel, N<:Union{Nothing,SearchLight.AbstractModel}}
