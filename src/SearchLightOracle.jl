@@ -357,7 +357,7 @@ function SearchLight.Migration.remove_sequence(name::Union{String,Symbol}, optio
   nothing
 end
 
-function SearchLight.Migration.remove_sequence(name::Union{String,Symbol}) :: Nothing()
+function SearchLight.Migration.remove_sequence(name::Union{String,Symbol}) :: Nothing
   SearchLight.Migration.remove_sequence(name,"")
 end
 
