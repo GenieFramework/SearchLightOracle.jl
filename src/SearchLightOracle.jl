@@ -121,15 +121,32 @@ function SearchLight.Migration.create_migrations_table(table_name::String = Sear
   nothing
 end
 
+function matchall(r::Regex, string::Union{SubString{String},String})
+  matches = collect(eachmatch(r,string(string)))
+  [match.match for match in matches] 
+end
+
 function column_names_from_select(sql::String)
-  #initializing return array
   result = String[]
+  closures = []
+  replacement_string = "XXYXX"
   # matches the statement between select .... from 
   rawmatch = match(r"(?i)(?s)(?<=Select).*?(?=From)", sql).match
   if rawmatch !== nothing
-    match_without_linebr = strip(replace(rawmatch,r"\R"=>""))
-    items = [split(item,r"\s+")   for item in split(match_without_linebr,",")]
-    result = [last(filter(x->!isempty(x),item))  for item in items]
+    match_without_linebr = string(strip(replace(rawmatch,r"\R"=>"")))
+    closure_items = reverse(matchall(r"\(.+\)", match_without_linebr))
+    closure_replaced = replace(match_without_linebr, r"\(.+\)" => replacement_string)
+    splitted_withoutClosures = string.(split(closure_replaced,","))
+    items = String[]
+    for item in splitted_withoutClosures
+      tmpItem = last(matchall(r"(\w+)",string(item)))
+      if occursin(replacement_string,tmpItem) 
+        push!(items,replace(item,replacement_string => pop!(closure_items)))
+      else
+        push!(items,tmpItem)
+      end
+    end
+    result = string.(items)
   end
   result 
 end
