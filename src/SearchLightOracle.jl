@@ -122,7 +122,7 @@ function SearchLight.Migration.create_migrations_table(table_name::String = Sear
 end
 
 function matchall(r::Regex, string::Union{SubString{String},String})
-  matches = collect(eachmatch(r,string(string)))
+  matches = collect(eachmatch(r,string))
   [match.match for match in matches] 
 end
 
