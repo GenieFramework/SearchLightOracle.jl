@@ -468,7 +468,8 @@ function sequence_name_pk(m::Type{T}) where {T<:SearchLight.AbstractModel}
 end
 
 function sequence_name_pk(table::Union{String,Symbol})
-  default_sequence = uppercase(string(table))
+  rawTable = SearchLight.strip_module_name(table)
+  default_sequence = uppercase(string(rawTable))
   default_sequence *= "__SEQ_"
   default_sequence *= uppercase(SearchLight.Inflector.tosingular(string(table))) * "_PK"
 end
