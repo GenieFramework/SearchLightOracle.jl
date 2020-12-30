@@ -163,9 +163,7 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
     else
         stmt.info.is_query == true ? Oracle.query(stmt) : Oracle.execute(stmt)
     end
-    #Until SearchLight will for its own support transactions every transaction will commited 
-    stmt.info.is_query == false && Oracle.commit(SearchLight.connection())
-
+    
     ## if the statement is an insert-stmt bring back the actual val of the sequence
     if isInsertStmt(sql) 
        id_result, id_name = current_value_seq(conn, sql) 
@@ -174,6 +172,9 @@ function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.conne
           DataFrames.rename!(df,[1=>id_name])
        end
     end
+
+    #Until SearchLight will for its own support transactions every transaction will commited 
+    stmt.info.is_query == false && Oracle.commit(SearchLight.connection())
 
     #get back the original column_names for the dataframe
     if stmt.info.is_query 
