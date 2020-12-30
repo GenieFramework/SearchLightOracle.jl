@@ -471,7 +471,7 @@ function sequence_name_pk(table::Union{String,Symbol})
   rawTable = SearchLight.strip_module_name(table)
   default_sequence = uppercase(string(rawTable))
   default_sequence *= "__SEQ_"
-  default_sequence *= uppercase(SearchLight.Inflector.tosingular(string(table))) * "_PK"
+  default_sequence *= uppercase(SearchLight.Inflector.tosingular(string(rawTable))) * "_PK"
 end
 
 function isInsertStmt(sql::String)::Bool
