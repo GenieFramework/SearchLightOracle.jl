@@ -88,9 +88,9 @@ function SearchLight.Migration.drop_table(table_name::Union{String,Symbol}) :: N
       Oracle.execute(SearchLight.connection(),"DROP TABLE $(uppercase(string(table_name)))")
       @info "Droped table $table_name"
       ## Drop pk() sequence
-      queryString = "SELECT sequence_name FROM user_sequences WHERE SEQUENCE_name = '$(sequence_name_pk(table_name))'"
+      queryString = "SELECT sequence_name FROM user_sequences WHERE SEQUENCE_name = '$(uppercase(sequence_name_pk(table_name)))'"
       if !isempty(SearchLight.query(queryString))
-        SearchLight.Migration.drop_sequence(sequence_name_pk(table_name))
+        SearchLight.Migration.drop_sequence(uppercase(sequence_name_pk(table_name)))
       else
         @info "No sequence to drop while dropping table"
       end
