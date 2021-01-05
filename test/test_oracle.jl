@@ -22,20 +22,20 @@ module TestSetupTeardown
         ######## Dropping used tables
         SearchLight.Migration.drop_migrations_table()
 
-        # insert tables you use in tests here
-        tables = ["Book","BookWithIntern","Callback","Author","BookWithAuthor"]
+        # # insert tables you use in tests here
+        # tables = ["Book","BookWithIntern","Callback","Author","BookWithAuthor"]
 
-        # obtain tables exists or not, if they does drop it
-        wheres = join(map(x -> uppercase(string("'", uppercase(SearchLight.Inflector.to_plural(x)), "'")), tables), " , ", " , ")
-        queryString = string("SELECT table_name FROM user_tables where table_name in ($wheres)")
-        result = SearchLight.query(queryString)
-        for item in eachrow(result)
-            try
-                SearchLight.Migration.drop_table((item[1]))
-            catch ex
-                @show "Table $item doesn't exist"
-            end 
-        end 
+        # # obtain tables exists or not, if they does drop it
+        # wheres = join(map(x -> uppercase(string("'", uppercase(SearchLight.Inflector.to_plural(x)), "'")), tables), " , ", " , ")
+        # queryString = string("SELECT table_name FROM user_tables where table_name in ($wheres)")
+        # result = SearchLight.query(queryString)
+        # for item in eachrow(result)
+        #     try
+        #         SearchLight.Migration.drop_table((item[1]))
+        #     catch ex
+        #         @show "Table $(item[1]) doesn't exist"
+        #     end 
+        # end 
   
         SearchLight.disconnect(conn)
         rm(SearchLight.config.db_migrations_folder, force=true, recursive=true)
@@ -175,7 +175,7 @@ end
 
     
       ############ tearDown ##################
-        SearchLight.Migration.down()
+        SearchLight.Migration.all_down!!(confirm=false)
         tearDown(conn)
 
     end
@@ -221,6 +221,7 @@ end
       @test length(fullTestBooks) > 0
   
       ############ tearDown ##################
+      SearchLight.Migration.all_down!!(confirm=false)
       tearDown(conn)
 
     end
@@ -247,31 +248,9 @@ end
         @test length(find(Author)) > 0 
 
         ####### tearDown #########
+        SearchLight.Migration.all_down!!(confirm=false)
         tearDown(conn)
     end
-
-    @safetestset "Saving and Reading fields and datatbase columns are different" begin
-      using SearchLight
-      using SearchLightOracle
-      using Main.TestSetupTeardown
-      using Main.TestModels
-
-      conn = prepareDbConnection()
-      SearchLight.Migration.create_migrations_table()
-      SearchLight.Generator.new_table_migration(BookWithAuthor)
-      SearchLight.Migration.up()
-      SearchLight.Generator.new_table_migration(Author)
-      SearchLight.Migration.up()
-
-      testAuthor = Author(firstname="Johann Wolfgang", lastname="Goethe")
-      testId = testAuthor |> save! 
-
-      @test length(find(Author)) > 0 
-
-      ####### tearDown #########
-      SearchLight.Migration.all_down!!(confirm=false)
-      tearDown(conn)
-  end;
 
     @safetestset "Saving and Reading Models with fields containing submodels" begin
         using SearchLight
