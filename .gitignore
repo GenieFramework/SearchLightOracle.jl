@@ -4,3 +4,5 @@
 Manifest.toml
 .DS_Store
 db/
+docs/build
+missedFunctions*

@@ -6,7 +6,7 @@ Oracle.jl has to be installed. For this a possibility to compile the necessary C
 
 ### Pre usage work
 
-If you have to use an Oracle RDBMS use the instant client library for the connection. Install this before you load Oracle.jl. You should also integrate the environment variable LD_LIBRARY_PATH to the installation directory of the instant client.
+If you have to use an Oracle RDBMS use the instant client library for the connection. Install this before you load Oracle.jl. You should also integrate the environment variable LD\_LIBRARY\_PATH to the installation directory of the instant client.
 
 ### Usage
 

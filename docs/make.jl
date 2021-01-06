@@ -1,5 +1,5 @@
-
-using Documenter, SearchLightOracle, SearchLight
+using Documenter, SearchLight
+using SearchLightOracle
 
 makedocs(
     sitename = "SearchLightOracle.jl",
