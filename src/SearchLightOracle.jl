@@ -64,6 +64,13 @@ function SearchLight.connect(conn_data::Dict = SearchLight.config.db_config_sett
   push!(CONNECTIONS, Oracle.Connection(username, password, connectionString))[end]
 end
 
+function Base.count(m::Type{T}, q::SearchLight.SQLQuery = SearchLight.SQLQuery())::Int where {T<:SearchLight.AbstractModel}
+  count_column = SearchLight.SQLColumn("COUNT(*) AS __cid", raw = true)
+  q = SearchLight.clone(q, :columns, push!(q.columns, count_column))
+
+  SearchLight.finddf(m, q)[1, Symbol("__cid")]
+end
+
 function SearchLight.disconnect(connection::Oracle.Connection)
     Oracle.close(connection)
     nothing
@@ -149,6 +156,46 @@ function column_names_from_select(sql::String)
     result = string.(items)
   end
   result 
+end
+
+function SearchLight.columns(m::Type{T})::DataFrames.DataFrame where {T<:SearchLight.AbstractModel}
+  SearchLight.query(table_columns_sql(SearchLight.table(m)), internal = true)
+end
+
+"""
+    table_columns_sql(table_name::String)::String
+
+Returns the adapter specific query for SELECTing table columns information corresponding to `table_name`.
+"""
+function table_columns_sql(table_name::String) :: String
+  "SELECT column_name FROM user_tab_cols WHERE TABLE_NAME = '$table_name'"
+end
+
+function SearchLight.delete_all(m::Type{T}; truncate::Bool = true, reset_sequence::Bool = true, cascade::Bool = false)::Nothing where {T<:SearchLight.AbstractModel}
+  if truncate
+    sql = "TRUNCATE $(SearchLight.table(m))"
+    cascade ? sql *= " CASCADE" : ""
+  else
+    sql = "DELETE FROM $(SearchLight.table(m))"
+  end
+
+  SearchLight.query(sql)
+
+  SearchLight.Migration.reset_sequence(sequence_name_pk(m))
+
+  nothing
+end
+
+function SearchLight.delete(m::T)::T where {T<:SearchLight.AbstractModel}
+  SearchLight.ispersisted(m) || throw(SearchLight.Exceptions.NotPersistedException(m))
+  pk_field = Symbol(SearchLight.primary_key_name(typeof(m)))
+
+  "DELETE FROM $(SearchLight.table(typeof(m))) WHERE $(SearchLight.primary_key_name(typeof(m))) = '$(values(getfield(m,pk_field)))'" |> SearchLight.query
+
+  # reinitialize the id
+  setfield!(m,pk_field, SearchLight.DbId())
+
+  m
 end
 
 function SearchLight.query(sql::String, conn::DatabaseHandle = SearchLight.connection(); internal = false) :: DataFrames.DataFrame
@@ -260,6 +307,10 @@ function SearchLight.update_query_part(m::T)::String where {T<:SearchLight.Abstr
   " $update_values WHERE $(SearchLight.table(typeof(m))).$(SearchLight.primary_key_name(typeof(m))) = '$(m.id.value)'"
 end
 
+function SearchLight.column_data_to_column_name(column::SearchLight.SQLColumn, column_data::Dict{Symbol,Any}) :: String
+  "$(SearchLight.to_fully_qualified(column_data[:column_name], column_data[:table_name])) AS $(isempty(column_data[:alias]) ? SearchLight.to_sql_column_name(column_data[:column_name], column_data[:table_name]) : column_data[:alias] )"
+end
+
 ### fallback function if storableFields not defined in the module
 function storableFields(m::Type{T})::Dict{String,String} where {T<:SearchLight.AbstractModel}
     tmpStorage = Dict{String,String}()
@@ -334,6 +385,43 @@ function SearchLight.Migration.create_table(f::Function, name::Union{String,Symb
   nothing
 end
 
+function SearchLight.Migration.add_index(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}; name::Union{String,Symbol} = "", unique::Bool = false, order::Union{String,Symbol} = :none) :: Nothing
+  name = isempty(name) ? SearchLight.index_name(table_name, column_name) : name
+  SearchLight.query("CREATE $(unique ? "UNIQUE" : "") INDEX $(name) ON $table_name ($column_name)", internal = true)
+
+  nothing
+end
+
+function SearchLight.Migration.add_column(table_name::Union{String,Symbol}, name::Union{String,Symbol}, column_type::Union{String,Symbol}; default::Union{String,Symbol,Nothing} = nothing, limit::Union{Int,Nothing} = nothing, not_null::Bool = false) :: Nothing
+  SearchLight.query("ALTER TABLE $table_name ADD $(SearchLight.Migration.column(name, column_type, default = default, not_null = not_null))", internal = true)
+
+  nothing
+end
+
+function SearchLight.Migration.remove_column(table_name::Union{String,Symbol}, name::Union{String,Symbol}, options::Union{String,Symbol} = "") :: Nothing
+  SearchLight.query("ALTER TABLE $table_name DROP COLUMN $name $options", internal = true)
+
+  nothing
+end
+
+function SearchLight.Migration.remove_index(name::Union{String,Symbol}, options::Union{String,Symbol} = "") :: Nothing
+  SearchLight.query("DROP INDEX $name $options", internal = true)
+
+  nothing
+end
+
+function SearchLight.Migration.constraint(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: String
+  string("CONSTRAINT ", SearchLight.index_name(table_name, column_name))
+end
+
+function SearchLight.Migration.nextval(table_name::Union{String,Symbol}, column_name::Union{String,Symbol}) :: String
+  "NEXTVAL('$(sequence_name(table_name, column_name) )')"
+end
+
+function SearchLight.Migration.column_id_sequence(table_name::Union{String,Symbol}, column_name::Union{String,Symbol})
+  throw(SearchLight.Exceptions.NotImplementedInAdapter("function column_id_sequence", "is not implemented in SearchLightOracle"))
+end
+
 function create_table_sql(f::Function, name::String, options::String = "") :: String
   "CREATE TABLE $name (" * join(f()::Vector{String}, ", ") * ") $options" |> strip
 end
@@ -373,6 +461,11 @@ end
 function SearchLight.Migration.column_id(name::Union{String,Symbol} = "id", options::Union{String,Symbol} = ""; constraint::Union{String,Symbol} = "", nextval::Union{String,Symbol} = "") :: String
   "$name NUMBER(10) NOT NULL $options"
 end
+
+function SearchLight.Migration.reset_sequence(sequence_name)
+  sql = "alter sequence $sequence_name restart start with 1"
+  SearchLight.query(sql)
+end 
 
 """
   escape_column_name(c::String, conn::DatabaseHandle)::String
@@ -487,6 +580,18 @@ Returns the columnnames in a select statment case sensitive
   nesessary to bring that back to the original 
 """
 
+### Generator
 
+function SearchLight.Generator.FileTemplates.adapter_default_config()
+  """
+  $(SearchLight.config.app_env):
+    adapter:  Oracle
+    host:     127.0.0.1
+    port:     1521
+    database: yourdb
+    username: your_username
+    password: your_password
+  """
+end
 
 end # End of Modul
