@@ -6,7 +6,7 @@ module TestModels
 
   ######## Model from Genie-Searchligth-example-app extracted ############
   export Book, BookWithInterns, Callback, BookWithAuthor, Author
-  export addBook, addBooks, seed, seedBook
+  export addBook, addBooks, seed, seedBook, seedAuthor
   using SearchLight, Dates
 
   mutable struct Book <: AbstractModel
@@ -216,6 +216,18 @@ module TestModels
     "The Pelican Brief",
     "The Client",
     "The Chamber"]
+  end
+
+  function seedAuthor()
+    ["MAO ZEDONG", 
+    "AGATHA CHRISTIE", 
+    "BARBARA CARTLAND",
+    "CORÍN TELLADO",
+    "CHARLES SCHULZ",
+    "EIICHIRO ODA",
+    "JAMES PATTERSON",
+    "HORATIO ALGER",
+    "LEO TOLSTOY"]
   end
 
 end ### End Module

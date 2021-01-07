@@ -9,5 +9,5 @@ dev:
   password: searchlight
 
   config:
-    log_queries: false
-    log_level: :error
+    log_queries: true
+    log_level: :debug

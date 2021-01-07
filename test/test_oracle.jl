@@ -317,5 +317,37 @@ end
       SearchLight.Migration.all_down!!(confirm=false)
       tearDown(conn)
     end;
+
+    @safetestset "several individual functions"
+      using SearchLight
+      using SearchLightOracle
+      using Main.TestSetupTeardown
+      using Main.TestModels
+
+
+      conn = prepareDbConnection()
+      SearchLight.Migration.create_migrations_table()
+      SearchLight.Generator.new_table_migration(BookWithAuthor)
+      SearchLight.Migration.up()
+      SearchLight.Generator.new_table_migration(Author)
+      SearchLight.Migration.up()
+
+      #prepare some data for testing
+      authors = [Author(firstname= author[1], lastname = author[2]) for author in (split.(seedAuthor()))]
+      tmpAuthors = deepcopy(authors)
+      authors |> SearchLight.save
+      for i in 1:5 
+        realTmp = deepcopy(tmpAuthors)
+        realTmp |> SearchLight.save
+      end
+
+      @time find(Author)
+
+      ### tearDown
+      SearchLight.Migration.all_down!!(confirm=false)
+      tearDown(conn)
+      
+
+    end
   
 end
