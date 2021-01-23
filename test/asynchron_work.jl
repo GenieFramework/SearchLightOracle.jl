@@ -85,8 +85,10 @@ function do_work(work_item)
         try
           tmp_pk ? getfield(tmp_rod[i,2],tmp_field_model).value = tmp_df[i,tmp_field_db] :
             setfield!(tmp_rod[i,2],tmp_field_model,tmp_df[i,tmp_field_db])
-        catch 
+        catch ex
           result_status = :error
+        finally
+          
         end
       end
       put!(work_item.results,(job_id[1],result_status)) 
@@ -110,17 +112,18 @@ end
 function exec_parallel(async_item)
   n = length(async_item.frame_splits) * length(async_item.fields)
   counter = 0
+  array_error = []
   result_stand =["Standard 1","Standard 2"]
   while n > 0 # print out results
     if !isempty(async_item.results) 
       result = take!(async_item.results)
+      !(result[2] == :ok) && push!(array_error,result)
       counter += 1
-    else
-      result = result_stand
     end
     mod(n,100) == 0 && @info "Zeile $n ausgeführt: $counter"
     n -= 1
   end
+  array_error
 end
 
 function work_all(n)
