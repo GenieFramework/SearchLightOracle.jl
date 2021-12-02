@@ -1,6 +1,10 @@
-using SearchLightOracle
-using Test
+cd(@__DIR__)
 
-@testset "SearchLightOracle.jl" begin
-    # Write your tests here.
+using Pkg
+
+using Test, TestSetExtensions, SafeTestsets
+using SearchLight
+
+@testset ExtendedTestSet "SearchLight tests" begin
+  @includetests ARGS
 end
