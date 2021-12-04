@@ -1,40 +1,52 @@
 @testset "Core features" begin
 
-  @safetestset "MySQL configuration" begin
+  config_file = joinpath(@__DIR__, "oracle_connection.yml")
+
+  @safetestset "Oracle configuration" begin
     using SearchLight
 
-    conn_info = SearchLight.Configuration.load("mysql_connection.yml")
+    config_file = joinpath(@__DIR__, "oracle_connection.yml")
+    conn_info = SearchLight.Configuration.load(config_file)
 
-    @test conn_info["adapter"] == "MySQL"
+    @test conn_info["adapter"] == "Oracle"
     @test conn_info["host"] == "127.0.0.1"
-    @test conn_info["password"] == "root"
+    @test conn_info["password"] == "searchlight"
     @test conn_info["config"]["log_level"] == ":debug"
     @test conn_info["config"]["log_queries"] == true
-    @test conn_info["port"] == 3306
-    @test conn_info["username"] == "root"
-    @test conn_info["database"] == "searchlight_tests"
+    @test conn_info["port"] == 51521
+    @test conn_info["username"] == "searchlight_test"
+    @test conn_info["database"] == "XEPDB1"
+
   end;
 
-  @safetestset "MySQL connection" begin
+  @safetestset "Oracle connection" begin
     using SearchLight
+    using SearchLightOracle
 
-    conn_info = SearchLight.Configuration.load("mysql_connection.yml")
+    config_file = joinpath(@__DIR__, "oracle_connection.yml")
+    conn_info = SearchLight.Configuration.load(config_file)
     conn = SearchLight.connect()
 
     @test conn.host == "127.0.0.1"
-    @test conn.port == "3306"
-    @test conn.db == "searchlight_tests"
-    @test conn.user == "root"
+    @test conn.port == "51521"
+    @test conn.db == "XEPDB1"
+    @test conn.user == "searchlight_test"
+
+    SearchLight.disconnect(conn)
   end;
 
-  @safetestset "MySQL query" begin
+  @safetestset "Oracle query" begin
     using SearchLight
+    include(joinpath(@__DIR__, "setUp_tearDown.jl"))
 
-    conn_info = SearchLight.Configuration.load("mysql_connection.yml")
+    config_file = joinpath(@__DIR__, "oracle_connection.yml")
+    conn_info = SearchLight.Configuration.load(config_file)
     conn = SearchLight.connect()
 
-    @test isempty(SearchLight.query("SHOW TABLES")) == true
+    @test isempty(SearchLight.query("SELECT table_name FROM user_tables")) == true
     @test SearchLight.Migration.create_migrations_table() == true
-    @test Array(SearchLight.query("SHOW TABLES"))[1] == SearchLight.config.db_migrations_table_name
+    @test Array(SearchLight.query("SELECT table_name FROM user_tables"))[1] == uppercase(SearchLight.config.db_migrations_table_name)
+
+    tearDown()
   end;
 end
