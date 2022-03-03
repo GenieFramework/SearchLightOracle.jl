@@ -1,23 +1,12 @@
 using SearchLight, SearchLight.Migrations, SearchLight.Relationships
+using SearchLight: connect
 
-cd(joinpath(pathof(SearchLight) |> dirname, "..", "test"))
+#To reach the db/migrations folder change the directory is necessary
+cd(@__DIR__)
 
-### SQLite
-# using SearchLightSQLite
-# const conndata = Dict("database" => "db/testdb.sqlite", "adapter" => "SQLite")
-
-### MySQL
-# using SearchLightMySQL
-# const conndata = Dict{String,Any}("host" => "localhost", "database" => "testdb", "username" => "root", "password" => "root", "adapter" => "MySQL")
-
-### Postgres
-# using SearchLightPostgreSQL
-# const conndata = Dict{String,Any}("host" => "localhost", "database" => "testdb", "username" => "postgres", "adapter" => "PostgreSQL")
-
-### Oracle -- needs to be adopted for the instance where the tests are running
-using SearchLightOracle
-conndata = SearchLight.Configuration.load(joinpath(@__DIR__, "oracle_connection.yml"))
-conn = SearchLight.connect(conndata)
+config_file = joinpath(@__DIR__, "oracle_connection.yml")
+conn_info = SearchLight.Configuration.load(config_file)
+conn = SearchLight.connect(conn_info)
 
 try
   SearchLight.Migrations.status()
@@ -26,7 +15,6 @@ catch _
 end
 
 isempty(SearchLight.Migrations.downed_migrations()) || SearchLight.Migrations.all_up!!()
-
 
 Base.@kwdef mutable struct User <: AbstractModel
   id::DbId = DbId()
@@ -60,7 +48,5 @@ for a in all(Ability)
 end
 
 Relationships.related(u1, Role)
-Relationships.related(findone(Role, id = 2), Ability)
+Relationships.related(findone(Role, id = 1), Ability)
 Relationships.related(u1, Ability, through = [Role])
-
-tearDown()

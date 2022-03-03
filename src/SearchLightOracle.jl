@@ -52,7 +52,7 @@ const TYPE_MAPPINGS = Dict{Symbol,Symbol}( # Julia / Postgres
 
 Connects to the database and returns a handle.
 """
-function SearchLight.connect(conn_data::Dict = SearchLight.config.db_config_settings)::DatabaseHandle
+function SearchLight.connect(conn_data::Dict{String,Any} = SearchLight.config.db_config_settings)::DatabaseHandle
 
   host = ""
   port = ""

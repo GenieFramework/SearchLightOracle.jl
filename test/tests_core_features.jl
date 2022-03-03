@@ -43,9 +43,9 @@
     conn_info = SearchLight.Configuration.load(config_file)
     conn = SearchLight.connect()
 
-    @test isempty(SearchLight.query("SELECT table_name FROM user_tables")) == true
+    @test isempty(SearchLight.query("SELECT table_name FROM user_tables")) == false
     @test SearchLight.Migration.create_migrations_table() == true
-    @test Array(SearchLight.query("SELECT table_name FROM user_tables"))[1] == uppercase(SearchLight.config.db_migrations_table_name)
+    @test Array(SearchLight.query("SELECT t.table_name FROM user_tables t WHERE t.table_name = 'SCHEMA_MIGRATIONS'"))[1] == uppercase(SearchLight.config.db_migrations_table_name)
 
     tearDown()
   end;
