@@ -36,6 +36,10 @@ end
 
 u1 = findone_or_create(User, username = "a") |> save!
 r1 = findone_or_create(Role, name = "abcd") |> save!
+k2 = findone(User)
+if k2 === nothing
+    println("Keine User gefunden")
+end
 
 for x in 'a':'d'
   findone_or_create(Ability, name = "$x") |> save!
