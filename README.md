@@ -1,4 +1,17 @@
 # SearchLightOracle
 
-[![Build Status](https://travis-ci.com/FrankUrbach/SearchLightOracle.jl.svg?branch=master)](https://travis-ci.com/FrankUrbach/SearchLightOracle.jl)
-[![Coverage](https://codecov.io/gh/FrankUrbach/SearchLightOracle.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/FrankUrbach/SearchLightOracle.jl)
+## Purpose of the project
+
+The project fullfills the API of SearchLight. The adpater can be used for communicating with
+Oracle databases.
+
+### Supported systems
+
+- Linux
+- MacOS
+
+### Restrictions
+
+Please not that the adapter will not work on Windows systems because for now Oracle.jl has to
+compile a small amount of C source code to change a needed library. This isn't done until today
+for Windows systems. If this is solved, this adapter can be used on Windows systems.
