@@ -1,13 +1,10 @@
 [deps]
-BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
-CategoricalArrays = "324d7699-5711-5eae-9e2f-1d82baa6b597"
-FreqTables = "da1fdf0e-e0ff-5433-a45f-9bb5ff651cb1"
-Oracle = "7240a794-28ba-5199-b477-df5fe5cf6155"
-OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
-Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 SafeTestsets = "1bc83da4-3b8d-516f-aca4-4fe02f6d838f"
 SearchLight = "340e8cb6-72eb-11e8-37ce-c97ebeb32050"
-SearchLightOracle = "120c9fa3-7901-4424-8e62-f10c2f697030"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestSetExtensions = "98d24dd4-01ad-11ea-1b02-c9a08f80db04"
+
+[compat]
+SearchLight = "2"
+julia = "1"
