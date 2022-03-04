@@ -36,9 +36,9 @@ end
 
 u1 = findone_or_create(User, username = "a") |> save!
 r1 = findone_or_create(Role, name = "abcd") |> save!
-k2 = findone(User)
+k2 = findone(Role)
 if k2 === nothing
-    println("Keine User gefunden")
+    println("Keine Role gefunden")
 end
 
 for x in 'a':'d'
@@ -52,5 +52,7 @@ for a in all(Ability)
 end
 
 Relationships.related(u1, Role)
-Relationships.related(findone(Role, id = 1), Ability)
+Relationships.related(findone(Role), Ability)
 Relationships.related(u1, Ability, through = [Role])
+
+tearDown()
