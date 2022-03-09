@@ -12,6 +12,6 @@ Oracle databases.
 
 ### Restrictions
 
-Please not that the adapter will not work on Windows systems because for now Oracle.jl has to
+Please note that the adapter will not work on Windows systems because for now Oracle.jl has to
 compile a small amount of C source code to change a needed library. This isn't done until today
 for Windows systems. If this is solved, this adapter can be used on Windows systems.
